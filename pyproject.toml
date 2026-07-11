@@ -1,0 +1,29 @@
+[project]
+name = "personal-agent"
+version = "0.1.0"
+description = "A private, local-first personal AI agent: Telegram -> LangGraph -> local Ollama model, with durable Postgres state."
+requires-python = ">=3.12"
+dependencies = [
+    "langgraph>=0.2.60",
+    "langchain-openai>=0.2.10",
+    "langchain-core>=0.3.20",
+    "langgraph-checkpoint-postgres>=2.0.0",
+    "psycopg[binary]>=3.2.0",
+    "python-telegram-bot>=21.6",
+    "pydantic-settings>=2.6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "ruff>=0.7.0",
+]
+
+# Treat this as an application, not an installable library, so tooling
+# (uv/pip) does not try to build a wheel for the root project.
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
