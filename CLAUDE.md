@@ -15,6 +15,7 @@ The full plan, learning docs, and per-phase build guides live in this repo's **`
 - `docs/01-primer.md` — beginner explanation of agent concepts.
 - `docs/02-architectures.md` — technical guide (named frameworks, diagrams).
 - `docs/03-phase0-build.md` — the step-by-step build guide this repo implements.
+- `docs/04-constitution.md` — the auditable rule list (soft `[prompt]` vs hard `[code]` tiers).
 
 ## Current status
 
@@ -45,6 +46,15 @@ weaken them without Stephanie's explicit say-so.
    code sandbox (Phase 4) has no access to `data/` or OAuth tokens.
 
 If a task seems to require breaking one of these, stop and confirm with Stephanie first.
+
+**Two-tier rule model.** These invariants are the **hard tier** — enforced in deterministic code
+outside the model, so they hold even if the model is fooled or prompt-injected. Separately, the
+**soft tier** is Mochi's personality/voice + behavioral defaults, which live in
+`app/agent/persona.md` (privileged agent only — never the quarantined reader) and are only
+*prompt*-enforced (the local model usually follows them but can drift). The canonical, auditable
+list of every rule — tagged `[prompt]`/`[code]`, with where it's enforced and its status — is
+[`docs/04-constitution.md`](./docs/04-constitution.md). When something *must* hold, it belongs in
+the hard tier, not the persona.
 
 ## Architecture (locked decisions)
 

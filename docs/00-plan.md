@@ -85,6 +85,25 @@ Phase 2 (when external accounts connect), not deferred.
 reintroducing the privacy exposure you want to avoid, and 24/7 GPU rental is costly. The Mac mini
 keeps everything home and is the recommended target; the control model above is identical either way.
 
+## Personality & the rule model
+
+The agent has a name — **Mochi** — and a deliberate voice (warm & personable, playful & witty,
+balanced length, sparing emoji). Just as important as *having* rules is being honest about which
+rules are *guaranteed*. Rules split into **two tiers**:
+
+- **Soft tier (`[prompt]`).** Personality/voice + behavioral defaults, in `app/agent/persona.md`,
+  fed to the model as a system prompt (assembled by `app/agent/persona.py`). The local model
+  *usually* follows these but can drift — fine for style, not a safety guarantee.
+- **Hard tier (`[code]`).** The safety/privacy invariants above (control model + guiding
+  principle 2) enforced in deterministic code outside the model, so they hold even when the model
+  is fooled or prompt-injected. These are the only rules that are *always* followed.
+
+Two things follow from this: **persona is for the privileged agent only** — the quarantined reader
+(Phase 3) stays persona-free so it isn't a new injection surface — and **hard rules are not
+learnable** (Phase 5 procedural memory adapts preferences, never a hard rule). The full, auditable
+rule list — every rule tagged `[prompt]`/`[code]` with where it's enforced and its status — lives in
+[`docs/04-constitution.md`](./04-constitution.md).
+
 ## Tech stack
 
 - **Language:** Python 3.12.
@@ -150,7 +169,8 @@ personal-agent/
 
 **Phase 0 — Scaffolding & message loop.** Config with **whitelisted chat_id**; local Postgres +
 pgvector; Ollama running a local 7–8B model; minimal LangGraph graph + Postgres checkpointer;
-Telegram long-polling. *Milestone:* chat from your phone; state survives restart.
+Telegram long-polling; **Mochi's persona** (`app/agent/persona.md` + `persona.py`) wired into the
+system prompt. *Milestone:* chat from your phone; state survives restart; replies come in Mochi's voice.
 
 **Phase 1 — Memory core (LangMem).** Postgres schema (facts w/ provenance+confidence, goals,
 tasks, reminders, purchases, episodic events, message log); **local** embedding pipeline; **hybrid
@@ -164,7 +184,9 @@ sensitive → routed to the local model.** *Milestone:* calendar Q&A + a Gmail d
 
 **Phase 3 — Proactivity MVP.** APScheduler jobs; **receipt→return-window flow** (tight Gmail
 filters → **quarantined-reader** extraction into a strict validated schema → `Purchase`+`Reminder`;
-deterministic vendor parsers as fallback); **reminder-tick** with quiet-hours, dedup, done/snooze.
+deterministic vendor parsers as fallback; the **quarantined reader stays persona-free** — no voice,
+no tools, structured output only, so it isn't an injection surface); **reminder-tick** with
+quiet-hours, dedup, done/snooze.
 Critical reminders are **mirrored into a real Google Calendar event** so they survive agent
 downtime. *Milestone:* seeded purchase → exactly one unprompted "return X by <date>" nudge.
 
@@ -178,8 +200,9 @@ use opt-in hosted for quality. *Milestone:* "build a landing page" → runnable,
 **Phase 5 — Deep memory & life-model.** Richer schema (relationships, temporal validity);
 **procedural memory** — the agent learns your preferences/workflows and appends to its own
 heuristics; consolidation job that de-dupes/summarizes and reconciles conflicting facts by
-confidence; a weekly **self-review**. *Milestone:* it recalls nuanced life context, adapts to your
-preferences, and updates beliefs as things change.
+confidence; a weekly **self-review**. Procedural memory adapts *preferences* only — **the hard rules
+in `docs/04-constitution.md` are not learnable and cannot be rewritten by memory.** *Milestone:* it
+recalls nuanced life context, adapts to your preferences, and updates beliefs as things change.
 
 **Phase 6 — Advanced proactivity.** Multi-source ingestion (calendar changes, flights/appointments,
 Drive) → **relevance/urgency scoring** → a daily/needed **briefing**; goal check-ins ("you set X,

@@ -3,7 +3,7 @@
 Phase 0 is intentionally a single reasoning node backed by a local model, with a
 durable Postgres checkpointer so conversation state survives restarts. Memory
 tools, the Google/MCP tools, the sensitivity router, and the human-in-the-loop
-confirmation gate all arrive in later phases (see ~/personal-agent-docs/00-plan.md).
+confirmation gate all arrive in later phases (see docs/00-plan.md).
 """
 
 from langchain_core.messages import SystemMessage
@@ -12,14 +12,12 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from psycopg import Connection
 
+from app.agent.persona import build_system_prompt
 from app.config import settings
 
-SYSTEM_PROMPT = (
-    "You are Stephanie's personal assistant. You are private and local-first: you "
-    "run on her own machine and never send her data to outside services. Be concise, "
-    "warm, and direct. If you don't know something, say so. You cannot yet access "
-    "email, calendar, or take real-world actions — those capabilities are coming."
-)
+# Mochi's voice + soft operating principles, sourced from the versioned persona.md.
+# Assembled once at import; the hard safety rules live in code, not this string.
+SYSTEM_PROMPT = build_system_prompt()
 
 _llm = ChatOpenAI(
     base_url=settings.ollama_base_url,
