@@ -31,10 +31,17 @@ Five things to install/configure: **Python 3.12**, **Ollama** (+ a model), **Pos
 
 ## Step 1 — Prerequisites (install once)
 
+> **Already provisioned on Stephanie's Mac (2026-07):** `uv`, `ollama` (+ `qwen2.5:7b` and
+> `nomic-embed-text`), `postgresql@17`, `pgvector`, and `gh` are installed via Homebrew and on
+> the PATH (a `brew shellenv` line was added to `~/.zprofile`). The Postgres service is running
+> and the `personal_agent` DB + `vector` extension already exist. The steps below are the
+> from-scratch reference / what to do on a new machine (e.g. the future Mac mini).
+
 Run these in Terminal. (I can run the non-interactive ones for you if you want — but installers and account steps you'll want to do yourself.)
 
 ```bash
-# Homebrew (if you don't have it): https://brew.sh
+# Homebrew (if you don't have it): https://brew.sh — then add it to your shell:
+#   echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile && source ~/.zprofile
 # Python 3.12
 brew install python@3.12
 python3.12 --version   # expect 3.12.x
@@ -43,24 +50,31 @@ python3.12 --version   # expect 3.12.x
 brew install uv
 ```
 
-**Ollama** (local model server): download from https://ollama.com/download (or `brew install ollama`). Then pull the models we'll use:
+**Ollama** (local model server):
 
 ```bash
-ollama serve            # leave running in its own terminal (or it runs as a menubar app)
-ollama pull qwen2.5:7b          # the chat/reasoning model (~4.7 GB)
-ollama pull nomic-embed-text    # local embeddings (used from Phase 1 on)
-ollama run qwen2.5:7b "say hi"  # sanity check — should reply
+brew install ollama
+brew services start ollama       # runs the server in the background (survives reboot)
+ollama pull qwen2.5:7b           # the chat/reasoning model (~4.7 GB)
+ollama pull nomic-embed-text     # local embeddings (used from Phase 1 on)
+ollama run qwen2.5:7b "say hi"   # sanity check — should reply
 ```
 
 > On the M2/16GB Air, `qwen2.5:7b` quantized is the sweet spot. If it feels heavy alongside Postgres, we can drop to a smaller quant later. Ollama exposes an OpenAI-compatible API at `http://localhost:11434/v1`.
 
-**Postgres.app** (database): download from https://postgresapp.com, drag to Applications, open it, click **Initialize** to create a server. Add its CLI tools to your PATH (Postgres.app shows the exact line; typically):
+**Postgres + pgvector** (database):
 
 ```bash
-sudo mkdir -p /etc/paths.d && echo /Applications/Postgres.app/Contents/Versions/latest/bin | sudo tee /etc/paths.d/postgresapp
-# open a new terminal, then:
-psql --version
+brew install postgresql@17       # pgvector's prebuilt bottle supports PG 17/18, not 16
+brew install pgvector
+brew services start postgresql@17
+brew link --force postgresql@17  # puts psql/createdb on your PATH
+psql --version                   # expect 17.x
 ```
+
+> We use `postgresql@17` rather than Postgres.app because the Homebrew **pgvector** bottle only
+> ships for Postgres 17/18. Same database, just installed via `brew` so it can run headless as a
+> service. `DATABASE_URL` stays `postgresql://localhost/personal_agent` regardless of version.
 
 ---
 
@@ -78,8 +92,8 @@ psql --version
 
 ```bash
 createdb personal_agent
-psql personal_agent -c "CREATE EXTENSION IF NOT EXISTS vector;"   # pgvector, ships with Postgres.app
-psql personal_agent -c "\dx"    # confirm 'vector' is listed
+psql personal_agent -c "CREATE EXTENSION IF NOT EXISTS vector;"   # enables the pgvector extension
+psql personal_agent -c "\dx"    # confirm 'vector' is listed (expect vector | 0.8.5)
 ```
 
 ---

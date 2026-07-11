@@ -9,12 +9,12 @@ long-term memory about her life, connects to Gmail/Calendar/Drive, tracks goals,
 web apps/PDFs, and is **proactive** (flagship example: notice a purchase in email → remind her
 to return it before the window closes).
 
-The full plan, learning docs, and per-phase build guides live in **`~/personal-agent-docs/`**
-— that folder is the **single source of truth** for design decisions:
-- `00-plan.md` — full end-to-end roadmap (Phases 0–10).
-- `01-primer.md` — beginner explanation of agent concepts.
-- `02-architectures.md` — technical guide (named frameworks, diagrams).
-- `03-phase0-build.md` — the step-by-step build guide this repo implements.
+The full plan, learning docs, and per-phase build guides live in this repo's **`docs/`** folder
+— the **single source of truth** for design decisions:
+- `docs/00-plan.md` — full end-to-end roadmap (Phases 0–10).
+- `docs/01-primer.md` — beginner explanation of agent concepts.
+- `docs/02-architectures.md` — technical guide (named frameworks, diagrams).
+- `docs/03-phase0-build.md` — the step-by-step build guide this repo implements.
 
 ## Current status
 

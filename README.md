@@ -4,7 +4,7 @@ A private, local-first personal AI agent you message from your phone. Telegram â
 a local open-weight model (Ollama), with durable Postgres state. Long-term memory, Gmail/
 Calendar/Drive, goal tracking, and proactivity are added phase by phase.
 
-> **Design docs & roadmap live in `~/personal-agent-docs/`.** Start with `00-plan.md`.
+> **Design docs & roadmap live in [`docs/`](./docs).** Start with [`docs/00-plan.md`](./docs/00-plan.md).
 > **Working in this repo (human or AI)?** Read [`CLAUDE.md`](./CLAUDE.md) first â€” it has the
 > non-negotiable privacy/safety rules.
 
@@ -15,7 +15,7 @@ reply, and the conversation survives a restart. No memory / Gmail / proactivity 
 
 ## Quickstart
 
-Full setup (Ollama, Postgres, Telegram bot) is in `~/personal-agent-docs/03-phase0-build.md`.
+Full setup (Ollama, Postgres, Telegram bot) is in [`docs/03-phase0-build.md`](./docs/03-phase0-build.md).
 Once prerequisites are in place:
 
 ```bash

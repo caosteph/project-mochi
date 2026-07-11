@@ -1,6 +1,6 @@
 # Personal AI Agent — Full-System Architecture & Roadmap
 
-> **This folder (`~/personal-agent-docs/`) is the single source of truth.** This file is the canonical plan. A copy at `~/.claude/plans/reactive-gliding-lightning.md` is stale — ignore it.
+> **This repo's `docs/` folder is the single source of truth.** This file is the canonical plan. Older copies elsewhere (`~/personal-agent-docs/`, `~/.claude/plans/reactive-gliding-lightning.md`) are retired — ignore them.
 
 ## Context
 
