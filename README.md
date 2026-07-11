@@ -10,8 +10,9 @@ Calendar/Drive, goal tracking, and proactivity are added phase by phase.
 
 ## Status
 
-**Phase 0** — scaffolding & message loop: text the bot from your phone, get a local-model
-reply, and the conversation survives a restart. No memory / Gmail / proactivity yet.
+**Phase 1** — memory core: text the bot from your phone, get a local-model reply that can
+remember facts/goals/tasks durably (across any conversation, not just one thread) and recall them
+by meaning via local hybrid search. No Gmail / proactivity yet — see `docs/05-phase1-build.md`.
 
 ## Quickstart
 

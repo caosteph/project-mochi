@@ -32,7 +32,7 @@ Design corollaries:
 | Rule | Tier | Enforced where | Status |
 |------|------|----------------|--------|
 | Only respond to the whitelisted `chat_id` | code | `channels/telegram.py` whitelist | ✅ done (P0) |
-| Private data (Gmail/Cal/Drive/memory) → local model + local embeddings only | code | sensitivity router, fail-closed + `LOCAL_ONLY`; embeddings always local | ▢ planned (P4); embeddings P1 |
+| Private data (Gmail/Cal/Drive/memory) → local model + local embeddings only | code | sensitivity router, fail-closed + `LOCAL_ONLY`; embeddings always local | ▢ planned (P4); embeddings ✅ done (P1, `app/memory/embeddings.py`) |
 | Never send email — draft only | code | Gmail OAuth scope (`readonly` + `compose`, no `gmail.send`); no send tool registered | ▢ planned (P2) |
 | Confirm before any side-effectful / external action | code | LangGraph `interrupt()` human-in-the-loop gate | ▢ planned (P2–3) |
 | Untrusted content is data, not instructions | code + prompt | quarantined reader (no tools, structured output) + prompt reminder | ▢ planned (P3) |

@@ -1,0 +1,112 @@
+"""SQLModel tables for Phase 1 memory. Purchase and Relationship are deliberately
+absent here — see docs/05-phase1-build.md's scope-trim note: Purchase only means
+something once Phase 3's Gmail pipeline can populate it, and Relationship is Phase 5.
+"""
+
+from datetime import datetime, timezone
+from enum import Enum
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import BigInteger, Column, DateTime, String
+from sqlmodel import Field, SQLModel
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# All datetime columns are explicitly TIMESTAMPTZ. SQLModel's default mapping
+# for a plain `datetime` field creates a timezone-naive Postgres column, which
+# silently drops the tzinfo on write — any later `now - created_at` comparison
+# then raises "can't subtract offset-naive and offset-aware datetimes".
+def _tz_column(*, nullable: bool = False) -> Column:
+    return Column(DateTime(timezone=True), nullable=nullable)
+
+
+class Provenance(str, Enum):
+    USER_STATED = "user_stated"
+    INFERRED = "inferred"
+    IMPORTED = "imported"  # reserved for Phase 2+ (Gmail/Calendar-derived facts)
+
+
+class GoalStatus(str, Enum):
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    ABANDONED = "abandoned"
+
+
+class TaskStatus(str, Enum):
+    OPEN = "open"
+    DONE = "done"
+    CANCELLED = "cancelled"
+
+
+class ReminderStatus(str, Enum):
+    PENDING = "pending"
+    SENT = "sent"
+    DONE = "done"
+    SNOOZED = "snoozed"
+    CANCELLED = "cancelled"
+
+
+class Fact(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    text: str
+    embedding: list[float] = Field(sa_column=Column(Vector(768)))
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    provenance: str = Field(default=Provenance.USER_STATED.value, sa_column=Column(String, index=True))
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+
+
+class Goal(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    text: str
+    status: str = Field(default=GoalStatus.ACTIVE.value, sa_column=Column(String, index=True))
+    target_date: datetime | None = Field(default=None, sa_column=_tz_column(nullable=True))
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+    completed_at: datetime | None = Field(default=None, sa_column=_tz_column(nullable=True))
+
+
+class Task(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    text: str
+    status: str = Field(default=TaskStatus.OPEN.value, sa_column=Column(String, index=True))
+    due_date: datetime | None = Field(default=None, sa_column=_tz_column(nullable=True))
+    goal_id: int | None = Field(default=None, foreign_key="goal.id")
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+    completed_at: datetime | None = Field(default=None, sa_column=_tz_column(nullable=True))
+
+
+class Reminder(SQLModel, table=True):
+    """Schema-ready this phase. No Phase 1 code writes here — the Phase 3
+    reminder-tick job is the first writer."""
+    id: int | None = Field(default=None, primary_key=True)
+    text: str
+    due_at: datetime = Field(sa_column=_tz_column())
+    status: str = Field(default=ReminderStatus.PENDING.value, sa_column=Column(String, index=True))
+    task_id: int | None = Field(default=None, foreign_key="task.id")
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+
+
+class Event(SQLModel, table=True):
+    """Episodic memory. Schema-ready this phase (same dormant-table treatment
+    as Reminder); populated starting Phase 2/3."""
+    id: int | None = Field(default=None, primary_key=True)
+    text: str
+    embedding: list[float] | None = Field(default=None, sa_column=Column(Vector(768), nullable=True))
+    occurred_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+
+
+class MessageLog(SQLModel, table=True):
+    """Populated by deterministic code (a call from channels/telegram.py after
+    each turn), not by an LLM tool — separate from the checkpointer's internal
+    state so message history is directly queryable."""
+    id: int | None = Field(default=None, primary_key=True)
+    # Telegram chat_ids can exceed 32-bit INTEGER range (e.g. 8736433076) —
+    # SQLModel's default int mapping is INTEGER, not BIGINT. Caught live,
+    # against a real Telegram chat_id, not from reading the code.
+    chat_id: int = Field(sa_column=Column(BigInteger, index=True))
+    role: str  # "user" | "assistant"
+    text: str
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())

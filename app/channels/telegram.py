@@ -9,6 +9,7 @@ import asyncio
 import logging
 
 from langchain_core.messages import HumanMessage
+from sqlmodel import Session
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -21,6 +22,8 @@ from telegram.ext import (
 from app.agent.graph import build_agent
 from app.channels.base import Channel
 from app.config import settings
+from app.memory import store
+from app.memory.db import get_engine
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +59,16 @@ class TelegramChannel(Channel):
             {"messages": [HumanMessage(text)]},
             config,
         )
-        await update.message.reply_text(result["messages"][-1].content)
+        reply = result["messages"][-1].content
+        await update.message.reply_text(reply)
+
+        chat_id = update.effective_chat.id
+        await asyncio.to_thread(self._log_turn, chat_id, text, reply)
+
+    def _log_turn(self, chat_id: int, user_text: str, assistant_text: str) -> None:
+        with Session(get_engine()) as session:
+            store.log_message(session, chat_id=chat_id, role="user", text=user_text)
+            store.log_message(session, chat_id=chat_id, role="assistant", text=assistant_text)
 
     def run(self) -> None:
         app = Application.builder().token(settings.telegram_bot_token).build()

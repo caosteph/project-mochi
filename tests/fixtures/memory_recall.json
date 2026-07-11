@@ -1,0 +1,15 @@
+{
+  "facts": [
+    {"text": "Stephanie's dog is named Biscuit.", "confidence": 1.0, "provenance": "user_stated"},
+    {"text": "Stephanie is allergic to shellfish.", "confidence": 1.0, "provenance": "user_stated"},
+    {"text": "Stephanie is training for a half marathon in October 2026.", "confidence": 0.9, "provenance": "user_stated"},
+    {"text": "Stephanie's favorite coffee order is an oat milk cortado.", "confidence": 0.8, "provenance": "inferred"},
+    {"text": "Stephanie's best friend is named Maya.", "confidence": 1.0, "provenance": "user_stated"}
+  ],
+  "queries": [
+    {"query": "what is my dog's name", "expect_substring": "Biscuit", "k": 3},
+    {"query": "do I have any food allergies", "expect_substring": "shellfish", "k": 3},
+    {"query": "what race am I training for", "expect_substring": "marathon", "k": 3},
+    {"query": "who is my best friend", "expect_substring": "Maya", "k": 3}
+  ]
+}

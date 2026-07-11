@@ -16,13 +16,18 @@ The full plan, learning docs, and per-phase build guides live in this repo's **`
 - `docs/02-architectures.md` — technical guide (named frameworks, diagrams).
 - `docs/03-phase0-build.md` — the step-by-step build guide this repo implements.
 - `docs/04-constitution.md` — the auditable rule list (soft `[prompt]` vs hard `[code]` tiers).
+- `docs/05-phase1-build.md` — memory core: schema, embeddings, hybrid recall, tool-calling loop.
 
 ## Current status
 
-**Phase 0 — scaffolding & message loop.** This repo currently implements only Phase 0:
-Telegram long-polling → a single-node LangGraph agent → a local Ollama model, with a durable
-Postgres checkpointer so conversation state survives restarts. No memory, no Gmail, no
-proactivity yet — those are Phases 1–3.
+**Phase 1 — memory core.** Telegram long-polling → a tool-calling LangGraph agent (memory tools:
+`remember_fact`/`recall`/`add_goal`/`add_task`) → a local Ollama model, with durable Postgres state
+(checkpointer + `Fact`/`Goal`/`Task`/`Reminder`/`Event`/`MessageLog` tables) and local hybrid
+retrieval (pgvector + keyword search + rerank). Basic context-window management (rolling summary +
+message trimming) is also in. No Gmail/Calendar, no proactivity yet — those are Phases 2–3. See
+`docs/05-phase1-build.md` for the full build guide, including a documented tool-invocation-reliability
+tradeoff (the model reliably, not guaranteedly, uses its memory tools — measured ~80%, not 100%,
+tracked by `scripts/verify_phase1.py`).
 
 ## Non-negotiable safety rules (these outlive any single task)
 
@@ -104,7 +109,14 @@ uv run python -m app.main        # or: source .venv/bin/activate && python -m ap
 
 ## Conventions
 
-- Keep Phase 0 lean: no speculative abstractions, no half-finished later-phase code.
+- Keep each phase lean: no speculative abstractions, no half-finished later-phase code.
 - All config flows through `app/config.py` — don't read env vars directly elsewhere.
 - Prefer editing existing files; keep the `Channel` seam and the safety layers intact.
 - When you finish a phase, update the "Current status" section above.
+- Every phase's build doc must include a standalone script/test that verifies its milestone by
+  driving the real code directly (e.g. `build_agent()`, not through Telegram) against a scratch
+  database — so correctness can be checked without Stephanie's live participation. Manual/live
+  checks (Telegram, OAuth flows, etc.) confirm the human-facing transport and experience, not
+  correctness that could have been checked automatically. (Established in Phase 1 after shipping a
+  bug — the model claiming to remember facts without calling the tool — that direct testing found
+  in minutes and manual testing had missed; see `scripts/verify_phase1.py`.)

@@ -25,5 +25,22 @@ class Settings(BaseSettings):
     # Privacy master switch. Keep true until the Phase 4 router exists.
     local_only: bool = True
 
+    # Embeddings — always local; deliberately no separate/hosted embedding URL setting.
+    embedding_model: str = "nomic-embed-text"
+    embedding_dims: int = 768
+
+    # Retrieval tunables
+    recall_default_k: int = 8
+    recall_candidate_limit: int = 30
+    recall_similarity_weight: float = 0.45
+    recall_keyword_weight: float = 0.20
+    recall_recency_weight: float = 0.20
+    recall_confidence_weight: float = 0.15
+    recall_recency_half_life_days: float = 30.0
+
+    # Context-window management
+    working_buffer_max_tokens: int = 3000
+    working_buffer_keep_recent: int = 6
+
 
 settings = Settings()  # import this everywhere: `from app.config import settings`
