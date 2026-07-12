@@ -27,7 +27,11 @@ from app.config import settings
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.compose",  # drafts only — never gmail.send
-    "https://www.googleapis.com/auth/calendar.readonly",
+    # calendar.events (read + write events) — Phase 3A mirrors reminders into
+    # calendar events. Broader than the old calendar.readonly (adds create/delete
+    # of events); only create_event/delete_event are ever called, and only by the
+    # reminder engine. Adding this scope requires a one-time re-consent.
+    "https://www.googleapis.com/auth/calendar.events",
 ]
 
 

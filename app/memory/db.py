@@ -64,3 +64,16 @@ def init_db(engine: Engine | None = None) -> None:
             "CREATE INDEX IF NOT EXISTS ix_event_embedding_hnsw "
             "ON event USING hnsw (embedding vector_cosine_ops)"
         ))
+        # Phase 3A: the `reminder` table already existed (Phase 1), and
+        # create_all() does NOT alter existing tables — so its new columns must
+        # be added explicitly and idempotently, or the first insert crashes with
+        # "column does not exist". (Purchase is a new table, handled by create_all.)
+        for col_def in (
+            "recurrence VARCHAR",
+            "kind VARCHAR DEFAULT 'generic'",
+            "purchase_id INTEGER REFERENCES purchase(id)",
+            "calendar_event_id VARCHAR",
+            "sent_at TIMESTAMP WITH TIME ZONE",
+        ):
+            conn.execute(text(f"ALTER TABLE reminder ADD COLUMN IF NOT EXISTS {col_def}"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminder_kind ON reminder (kind)"))

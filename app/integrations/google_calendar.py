@@ -55,3 +55,27 @@ def list_events(
             }
         )
     return events
+
+
+def create_event(
+    summary: str, start_iso: str, end_iso: str, *, popup_minutes: int = 0, service=None
+) -> dict:
+    """Create a primary-calendar event with a popup reminder. Used only by the
+    reminder engine to mirror reminders (no agent-facing update/delete tool exists)."""
+    service = service or _service()
+    body = {
+        "summary": summary,
+        "start": {"dateTime": start_iso},
+        "end": {"dateTime": end_iso},
+        "reminders": {
+            "useDefault": False,
+            "overrides": [{"method": "popup", "minutes": popup_minutes}],
+        },
+    }
+    return service.events().insert(calendarId="primary", body=body).execute()
+
+
+def delete_event(event_id: str, *, service=None) -> None:
+    """Delete an event — used by verify_phase3.py to clean up its test event."""
+    service = service or _service()
+    service.events().delete(calendarId="primary", eventId=event_id).execute()

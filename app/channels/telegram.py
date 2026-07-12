@@ -41,6 +41,7 @@ from app.channels.base import Channel
 from app.config import settings
 from app.memory import store
 from app.memory.db import get_engine
+from app.proactive import jobs, reminders
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +55,9 @@ _TOOL_STATUS = {
     "remember_fact": "🧠 Noting that down…",
     "add_goal": "🎯 Adding that goal…",
     "add_task": "✅ Adding that task…",
+    "add_reminder": "⏰ Setting that reminder…",
+    "list_reminders": "📋 Checking your reminders…",
+    "cancel_reminder": "🗑️ Cancelling that reminder…",
 }
 
 
@@ -101,19 +105,54 @@ class TelegramChannel(Channel):
         await query.answer()
         if not self._authorized(update):
             return
-
-        approved = query.data == "approve"
         chat_id = update.effective_chat.id
-        # Strip the buttons so the decision can't be double-tapped.
-        await query.edit_message_reply_markup(reply_markup=None)
+        await query.edit_message_reply_markup(reply_markup=None)  # no double-taps
 
+        data = query.data or ""
+        if data.startswith("rem:"):
+            await self._on_reminder_button(chat_id, ctx, data)
+            return
+        # Otherwise it's a draft approve/reject: resume the paused graph.
         interrupt_payload, reply, error = await self._run_with_status(
-            chat_id, ctx, Command(resume={"approved": approved}), announce_thinking=False
+            chat_id, ctx, Command(resume={"approved": data == "approve"}), announce_thinking=False
         )
         if error is not None:
             await self._report_error(chat_id, ctx, error)
             return
         await self._deliver(chat_id, ctx, interrupt_payload, reply)
+
+    async def _on_reminder_button(self, chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, data: str) -> None:
+        # data is "rem:done:<id>" or "rem:snooze:<id>"
+        _, action, rid = data.split(":")
+        reminder_id = int(rid)
+
+        def apply():
+            with Session(get_engine()) as session:
+                if action == "done":
+                    return reminders.mark_done(session, reminder_id), "done"
+                return reminders.snooze(session, reminder_id), "snooze"
+
+        reminder, kind = await asyncio.to_thread(apply)
+        if reminder is None:
+            await ctx.bot.send_message(chat_id=chat_id, text="That reminder's already gone.")
+        elif kind == "done":
+            await ctx.bot.send_message(chat_id=chat_id, text="✅ Marked done.")
+        else:
+            await ctx.bot.send_message(
+                chat_id=chat_id, text=f"⏰ Snoozed — I'll remind you again {reminder.due_at.astimezone():%a %-I:%M %p}."
+            )
+
+    async def _on_pause(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not self._authorized(update):
+            return
+        jobs.set_enabled(False)
+        await update.message.reply_text("🔕 Proactive reminders paused. Say /resume to turn them back on.")
+
+    async def _on_resume(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not self._authorized(update):
+            return
+        jobs.set_enabled(True)
+        await update.message.reply_text("🔔 Proactive reminders back on.")
 
     async def _run_with_status(
         self,
@@ -297,7 +336,13 @@ class TelegramChannel(Channel):
     def run(self) -> None:
         app = Application.builder().token(settings.telegram_bot_token).build()
         app.add_handler(CommandHandler("start", self._on_start))
+        app.add_handler(CommandHandler("pause", self._on_pause))
+        app.add_handler(CommandHandler("resume", self._on_resume))
         app.add_handler(CallbackQueryHandler(self._on_callback))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._on_message))
+        # Proactive reminder-tick (JobQueue = APScheduler on the bot's own loop).
+        app.job_queue.run_repeating(
+            jobs.reminder_tick_job, interval=settings.reminder_tick_interval_seconds, first=10
+        )
         log.info("Telegram channel started (long-polling). Whitelisted chat: %s", settings.telegram_chat_id)
         app.run_polling()

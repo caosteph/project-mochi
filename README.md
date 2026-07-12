@@ -10,9 +10,11 @@ Calendar/Drive, goal tracking, and proactivity are added phase by phase.
 
 ## Status
 
-**Phase 1** — memory core: text the bot from your phone, get a local-model reply that can
-remember facts/goals/tasks durably (across any conversation, not just one thread) and recall them
-by meaning via local hybrid search. No Gmail / proactivity yet — see `docs/05-phase1-build.md`.
+**Phase 3A** — proactive reminders: on top of durable memory (P1) and Google Calendar/Gmail with a
+human-in-the-loop approval gate (P2), Mochi is now **proactive** — set any reminder by talking to her
+("call mom every Sunday"), and she pushes it to you unprompted (with Done/Snooze), quiet-hours-aware,
+mirrored into Google Calendar. Email receipt auto-extraction is next (3B). See the per-phase guides in
+[`docs/`](./docs).
 
 ## Quickstart
 

@@ -18,18 +18,27 @@ The full plan, learning docs, and per-phase build guides live in this repo's **`
 - `docs/04-constitution.md` — the auditable rule list (soft `[prompt]` vs hard `[code]` tiers).
 - `docs/05-phase1-build.md` — memory core: schema, embeddings, hybrid recall, tool-calling loop.
 - `docs/06-phase2-build.md` — Google (direct API): OAuth, calendar/gmail tools, the approval gate.
+- `docs/07-phase3a-build.md` — proactive reminder engine: scheduler, add/list/cancel, calendar mirror.
 
 ## Current status
 
-**Phase 2 — Google (Calendar + Gmail) & the approval gate.** Builds on Phase 1's memory core. The
-agent now has 7 tools: memory (`remember_fact`/`recall`/`add_goal`/`add_task`) plus Google
-(`calendar_list_events`, `gmail_list_recent` [metadata only], `create_draft` [gated]). Google is
-wired via a **thin direct `google-api-python-client` integration, not MCP** (see
-`docs/06-phase2-build.md` for why) with least-privilege scopes (`gmail.readonly` + `gmail.compose`
-+ `calendar.readonly` — no send, no calendar-write). The **human-in-the-loop approval gate**
-(`app/agent/confirm.py` → LangGraph `interrupt()` → Telegram Approve/Reject) pauses every external
-write (draft creation) for explicit approval. Email is metadata-only — the privileged agent never
-ingests raw bodies (quarantined reader is Phase 3). Everything still local (`LOCAL_ONLY`).
+**Phase 3A — proactive reminder engine.** Builds on Phase 2. Mochi can now be *proactive* — the
+channel pushes unprompted reminders, not just responses. 10 tools: memory + Google + reminders
+(`add_reminder`/`list_reminders`/`cancel_reminder`). She sets one-off and recurring reminders from
+natural language ("call mom every Sunday") — time parsing by `dateparser`, not the model. A JobQueue
+tick (`app/proactive/`) fires due reminders to the whitelisted chat with Done/Snooze buttons, with
+quiet-hours (9pm–8am), status-dedup, catch-up-without-spam, per-reminder error isolation, and a
+`/pause` `/resume` kill-switch. The return-window flagship is one auto-created *kind* of reminder
+(seedable now; Gmail auto-extraction via the quarantined reader is 3B). Timed reminders mirror into
+Google Calendar events (added `calendar.events` write scope). See `docs/07-phase3a-build.md`.
+
+**Phase 2 — Google (Calendar + Gmail) & the approval gate.** Direct `google-api-python-client`
+integration (not MCP — see `docs/06-phase2-build.md`), least-privilege scopes (`gmail.readonly` +
+`gmail.compose`; calendar upgraded to `calendar.events` write in 3A for reminder mirroring). The
+human-in-the-loop approval gate (`app/agent/confirm.py` → `interrupt()` → Telegram Approve/Reject)
+pauses external writes (draft creation). Email is metadata-only — the privileged agent never ingests
+raw bodies (quarantined reader is Phase 3B). Live status narration + token streaming + keep-warm +
+prompt-cache latency fix. Everything local (`LOCAL_ONLY`).
 
 **Phase 1 — memory core.** Durable Postgres memory (`Fact`/`Goal`/`Task`/`Reminder`/`Event`/
 `MessageLog`), local `nomic-embed-text` embeddings + hybrid recall (pgvector + keyword + rerank),
