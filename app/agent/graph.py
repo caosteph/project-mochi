@@ -8,6 +8,8 @@ The sensitivity router and human-in-the-loop confirmation gate still arrive in
 later phases.
 """
 
+from datetime import datetime
+
 from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -58,9 +60,11 @@ _summarizer_llm = ChatOpenAI(
 
 
 def _agent_node(state: AgentState) -> dict:
-    """Single reasoning step: prepend the system prompt (+ rolling summary,
+    """Single reasoning step: prepend the system prompt (+ current time so the
+    model can resolve 'today'/'tomorrow' for calendar queries, + rolling summary
     if any), call the local model."""
-    core = SYSTEM_PROMPT
+    now = datetime.now().astimezone()
+    core = f"{SYSTEM_PROMPT}\n\nCurrent date/time: {now:%A, %Y-%m-%d %H:%M %Z}."
     if state.get("summary"):
         core += f"\n\n---\nSummary of earlier conversation:\n{state['summary']}"
     messages = [SystemMessage(core), *state["messages"]]

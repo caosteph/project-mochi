@@ -128,10 +128,18 @@ def route(task) -> Endpoint:
 
 ## 5. Tools & integrations (MCP)
 
+> **Phase 2 update (implemented):** Gmail/Calendar are wired via a **thin direct
+> `google-api-python-client` integration**, not MCP — see `docs/06-phase2-build.md`. Why the pivot:
+> the placeholder MCP server names below never existed; Google's *official* MCP servers turned out
+> to be remote/hosted (not local stdio) and possibly preview-gated; community stdio servers require
+> trusting third-party code with your OAuth tokens. Direct API gave the most local, controllable,
+> minimal-scope path for this narrow surface. **MCP is still the plan for Phase 7 (Drive)** and
+> broader integrations, where its extensibility pays off — the section below stands as that design.
+
 **The job:** connect to Gmail/Calendar/Drive/filesystem without hand-writing glue.
 
 - **MCP (Model Context Protocol)** — open standard; connect off-the-shelf **MCP servers** for Google services.
-- **`langchain-mcp-adapters`** *(chosen)* — loads MCP-server tools as LangGraph tools dynamically.
+- **`langchain-mcp-adapters`** *(chosen for Phase 7+)* — loads MCP-server tools as LangGraph tools dynamically.
 - **FastMCP** — for writing your *own* MCP server if a service lacks one.
 
 **Least-privilege scopes (enforced by Google, not the prompt):** Gmail `readonly` + `gmail.compose` (drafts) — **never `gmail.send`**. Calendar read/write. This survives prompt injection because the token literally lacks send authority.

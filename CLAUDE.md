@@ -17,17 +17,25 @@ The full plan, learning docs, and per-phase build guides live in this repo's **`
 - `docs/03-phase0-build.md` — the step-by-step build guide this repo implements.
 - `docs/04-constitution.md` — the auditable rule list (soft `[prompt]` vs hard `[code]` tiers).
 - `docs/05-phase1-build.md` — memory core: schema, embeddings, hybrid recall, tool-calling loop.
+- `docs/06-phase2-build.md` — Google (direct API): OAuth, calendar/gmail tools, the approval gate.
 
 ## Current status
 
-**Phase 1 — memory core.** Telegram long-polling → a tool-calling LangGraph agent (memory tools:
-`remember_fact`/`recall`/`add_goal`/`add_task`) → a local Ollama model, with durable Postgres state
-(checkpointer + `Fact`/`Goal`/`Task`/`Reminder`/`Event`/`MessageLog` tables) and local hybrid
-retrieval (pgvector + keyword search + rerank). Basic context-window management (rolling summary +
-message trimming) is also in. No Gmail/Calendar, no proactivity yet — those are Phases 2–3. See
-`docs/05-phase1-build.md` for the full build guide, including a documented tool-invocation-reliability
-tradeoff (the model reliably, not guaranteedly, uses its memory tools — measured ~80%, not 100%,
-tracked by `scripts/verify_phase1.py`).
+**Phase 2 — Google (Calendar + Gmail) & the approval gate.** Builds on Phase 1's memory core. The
+agent now has 7 tools: memory (`remember_fact`/`recall`/`add_goal`/`add_task`) plus Google
+(`calendar_list_events`, `gmail_list_recent` [metadata only], `create_draft` [gated]). Google is
+wired via a **thin direct `google-api-python-client` integration, not MCP** (see
+`docs/06-phase2-build.md` for why) with least-privilege scopes (`gmail.readonly` + `gmail.compose`
++ `calendar.readonly` — no send, no calendar-write). The **human-in-the-loop approval gate**
+(`app/agent/confirm.py` → LangGraph `interrupt()` → Telegram Approve/Reject) pauses every external
+write (draft creation) for explicit approval. Email is metadata-only — the privileged agent never
+ingests raw bodies (quarantined reader is Phase 3). Everything still local (`LOCAL_ONLY`).
+
+**Phase 1 — memory core.** Durable Postgres memory (`Fact`/`Goal`/`Task`/`Reminder`/`Event`/
+`MessageLog`), local `nomic-embed-text` embeddings + hybrid recall (pgvector + keyword + rerank),
+the tool-calling loop, and context-window management (rolling summary + trimming). Documented
+tool-invocation-reliability tradeoff (~80%, not 100%, on the local 7B — tracked by the verify
+scripts). See `docs/05-phase1-build.md`.
 
 ## Non-negotiable safety rules (these outlive any single task)
 

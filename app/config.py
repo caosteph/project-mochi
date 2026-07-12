@@ -42,5 +42,11 @@ class Settings(BaseSettings):
     working_buffer_max_tokens: int = 3000
     working_buffer_keep_recent: int = 6
 
+    # Google (Phase 2). Paths only — OAuth scopes are a constant in
+    # app/integrations/google_auth.py (least-privilege, not env-tunable). Both
+    # files live under git-ignored data/ and never leave the machine.
+    google_client_secret_path: str = "data/google_client_secret.json"
+    google_token_path: str = "data/google_token.json"
+
 
 settings = Settings()  # import this everywhere: `from app.config import settings`

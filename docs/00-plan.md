@@ -178,9 +178,16 @@ retrieval** (vector + keyword + recency/importance rerank); core blocks + workin
 summarization; tools `remember_fact`/`recall`/`add_goal`/`add_task`. **Start the eval fixture set
 here** (recall accuracy, no-network check). *Milestone:* remembers facts across restarts; evals green.
 
-**Phase 2 — Google via MCP.** One-time OAuth (Calendar read/write, Gmail read + compose);
-`mcp_client.py` connects Gmail/Calendar/Drive MCP servers; **email/calendar content is tagged
-sensitive → routed to the local model.** *Milestone:* calendar Q&A + a Gmail draft appear, all local.
+**Phase 2 — Google (direct API, not MCP — see `docs/06-phase2-build.md`).** One-time desktop OAuth
+(Calendar **read-only** for now — write deferred to Phase 3's reminder→event mirroring; Gmail read +
+compose). Thin `google-api-python-client` tools rather than MCP servers: the plan's placeholder MCP
+servers don't exist, Google's official ones are remote/hosted, and community stdio servers require
+trusting third-party code with OAuth tokens — direct API is the most local/controllable for this
+narrow scope (MCP returns in Phase 7 for Drive). **Email is metadata-only** (sender/subject/date);
+the privileged agent never ingests raw bodies (the quarantined reader is Phase 3). The
+**human-in-the-loop approval gate** (`app/agent/confirm.py` → `interrupt()` → Telegram
+Approve/Reject) ships here, gating draft writes. Everything local (`LOCAL_ONLY`). *Milestone:*
+calendar Q&A + an approved Gmail draft appear, all local.
 
 **Phase 3 — Proactivity MVP.** APScheduler jobs; **receipt→return-window flow** (tight Gmail
 filters → **quarantined-reader** extraction into a strict validated schema → `Purchase`+`Reminder`;

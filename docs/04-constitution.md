@@ -33,8 +33,8 @@ Design corollaries:
 |------|------|----------------|--------|
 | Only respond to the whitelisted `chat_id` | code | `channels/telegram.py` whitelist | ✅ done (P0) |
 | Private data (Gmail/Cal/Drive/memory) → local model + local embeddings only | code | sensitivity router, fail-closed + `LOCAL_ONLY`; embeddings always local | ▢ planned (P4); embeddings ✅ done (P1, `app/memory/embeddings.py`) |
-| Never send email — draft only | code | Gmail OAuth scope (`readonly` + `compose`, no `gmail.send`); no send tool registered | ▢ planned (P2) |
-| Confirm before any side-effectful / external action | code | LangGraph `interrupt()` human-in-the-loop gate | ▢ planned (P2–3) |
+| Never send email — draft only | code | Gmail OAuth scope (`readonly` + `compose`, no `gmail.send` — `app/integrations/google_auth.py`); no send tool registered | ✅ done (P2) |
+| Confirm before any side-effectful / external action | code | LangGraph `interrupt()` gate — `app/agent/confirm.py`, wired through Telegram Approve/Reject | ✅ done (P2, gating draft writes; extends to more actions as they land) |
 | Untrusted content is data, not instructions | code + prompt | quarantined reader (no tools, structured output) + prompt reminder | ▢ planned (P3) |
 | No destructive deletes / permission or setting changes | code | no such tools registered | ◐ ongoing |
 | Rate limits + hard cap on outbound actions | code | limiter + anomaly halt | ▢ planned |
