@@ -122,28 +122,33 @@ class TelegramChannel(Channel):
         graph_input,
         announce_thinking: bool,
     ):
-        """Stream the graph and narrate what Mochi is doing through a single status
-        message that's edited in place across phases — 💭 Thinking → 📅 (a tool) →
-        ✍️ Composing — so even a no-tool turn shows activity. The status message is
-        left in the chat (a breadcrumb of the last phase), not deleted. The stream is
-        a sync generator, so it runs on a worker thread and hands events to this async
-        consumer via a queue. Returns (interrupt_payload, reply, error)."""
+        """Stream the graph with two live surfaces:
+        - a status breadcrumb (💭 Thinking → 📅/✉️ a tool) edited in place, left in
+          the chat as a record of what Mochi did;
+        - the reply itself, streamed token-by-token into a separate message that types
+          out live (so the wait feels shorter — the ultimate progress indicator).
+
+        stream_mode=["updates","messages"] gives both node updates (for the status
+        breadcrumb + the approval interrupt) and LLM token chunks (for the live reply).
+        The stream is a sync generator, so it runs on a worker thread that hands events
+        to this async consumer via a queue. Returns (interrupt_payload, reply, error);
+        on a plain reply the text is already displayed here, so _deliver only logs it."""
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
 
         def worker():
             try:
-                for update in self.agent.stream(
-                    graph_input, self._config(chat_id), stream_mode="updates"
+                for item in self.agent.stream(
+                    graph_input, self._config(chat_id), stream_mode=["updates", "messages"]
                 ):
-                    loop.call_soon_threadsafe(queue.put_nowait, ("update", update))
+                    loop.call_soon_threadsafe(queue.put_nowait, ("stream", item))
             except Exception as exc:  # surfaced to the user instead of a silent no-reply
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
 
-        # One status message, edited in place as phases progress.
-        status_msg_id: list[int | None] = [None]
+        status_msg_id: list[int | None] = [None]  # breadcrumb message
+        reply_msg_id: list[int | None] = [None]  # streaming-reply message
 
         async def set_status(text: str) -> None:
             try:
@@ -151,10 +156,25 @@ class TelegramChannel(Channel):
                     msg = await ctx.bot.send_message(chat_id=chat_id, text=text)
                     status_msg_id[0] = msg.message_id
                 else:
-                    await ctx.bot.edit_message_text(
-                        text, chat_id=chat_id, message_id=status_msg_id[0]
-                    )
-            except Exception:  # editing/sending status is best-effort, never fatal
+                    await ctx.bot.edit_message_text(text, chat_id=chat_id, message_id=status_msg_id[0])
+            except Exception:  # status is best-effort, never fatal
+                pass
+
+        shown_reply = [""]  # last text put in the reply message (avoids no-op edits)
+
+        async def show_reply(text: str) -> None:
+            text = text.strip()
+            if not text or text == shown_reply[0]:
+                return
+            text = text[:4000]  # Telegram message cap; the final reply is short in practice
+            shown_reply[0] = text
+            try:
+                if reply_msg_id[0] is None:
+                    msg = await ctx.bot.send_message(chat_id=chat_id, text=text)
+                    reply_msg_id[0] = msg.message_id
+                else:
+                    await ctx.bot.edit_message_text(text, chat_id=chat_id, message_id=reply_msg_id[0])
+            except Exception:
                 pass
 
         stop = asyncio.Event()
@@ -178,6 +198,8 @@ class TelegramChannel(Channel):
         interrupt_payload = None
         reply = None
         error = None
+        reply_buf = ""
+        last_edit = 0.0
         try:
             while True:
                 kind, data = await queue.get()
@@ -186,25 +208,43 @@ class TelegramChannel(Channel):
                 if kind == "error":
                     error = data
                     continue  # keep draining until 'done'
-                update = data
-                if "__interrupt__" in update:
-                    interrupt_payload = update["__interrupt__"][0].value
+
+                mode, payload = data
+                if mode == "updates":
+                    update = payload
+                    if "__interrupt__" in update:
+                        interrupt_payload = update["__interrupt__"][0].value
+                        continue
+                    if "tools" in update:
+                        # A tool just ran; discard any pre-tool stray tokens so only
+                        # the post-tool reply streams.
+                        reply_buf = ""
+                        continue
+                    agent_payload = update.get("agent")
+                    if agent_payload and agent_payload.get("messages"):
+                        msg = agent_payload["messages"][-1]
+                        tool_names = [tc["name"] for tc in (getattr(msg, "tool_calls", None) or [])]
+                        if tool_names:
+                            await set_status(status_for_tool(tool_names[-1]))
+                        elif msg.content:
+                            reply = msg.content  # authoritative final text
                     continue
-                if "tools" in update:
-                    # A read tool just finished; the model is about to compose.
-                    await set_status("✍️ Composing your reply…")
-                    continue
-                agent_payload = update.get("agent")
-                if agent_payload and agent_payload.get("messages"):
-                    msg = agent_payload["messages"][-1]
-                    tool_names = [tc["name"] for tc in (getattr(msg, "tool_calls", None) or [])]
-                    if tool_names:
-                        await set_status(status_for_tool(tool_names[-1]))
-                    elif msg.content:
-                        reply = msg.content
+
+                # mode == "messages": (message_chunk, metadata) — live tokens.
+                chunk, meta = payload
+                if meta.get("langgraph_node") == "agent" and getattr(chunk, "content", None):
+                    reply_buf += chunk.content
+                    now = loop.time()
+                    if now - last_edit >= 1.0:  # throttle Telegram edits
+                        last_edit = now
+                        await show_reply(reply_buf)
         finally:
             stop.set()
             await typing
+
+        # Make sure the full, authoritative reply is what's displayed.
+        if interrupt_payload is None and error is None:
+            await show_reply(reply or reply_buf or "Done.")
 
         return interrupt_payload, reply, error
 
@@ -216,9 +256,9 @@ class TelegramChannel(Channel):
         reply: str | None,
         user_text: str | None = None,
     ) -> None:
-        """Send the graph's output. If it paused for approval, show the proposal
-        with Approve/Reject (the assistant reply comes later, after approval);
-        otherwise send the reply. Logs the turn."""
+        """Finish the turn. On approval, show the proposal with Approve/Reject (the
+        reply comes after approval). Otherwise the reply text was already streamed
+        live by _run_with_status, so here we only log it. Logs the turn."""
         if user_text is not None:
             await asyncio.to_thread(self._log_one, chat_id, "user", user_text)
 
@@ -241,9 +281,8 @@ class TelegramChannel(Channel):
             await ctx.bot.send_message(chat_id=chat_id, text=proposal, reply_markup=keyboard)
             return
 
-        reply = reply or "Done."
-        await ctx.bot.send_message(chat_id=chat_id, text=reply)
-        await asyncio.to_thread(self._log_one, chat_id, "assistant", reply)
+        # The reply was already streamed into the chat by _run_with_status; just log it.
+        await asyncio.to_thread(self._log_one, chat_id, "assistant", reply or "Done.")
 
     async def _report_error(self, chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, error: Exception) -> None:
         log.error("Graph run failed", exc_info=error)

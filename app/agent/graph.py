@@ -60,14 +60,21 @@ _summarizer_llm = ChatOpenAI(
 
 
 def _agent_node(state: AgentState) -> dict:
-    """Single reasoning step: prepend the system prompt (+ current time so the
-    model can resolve 'today'/'tomorrow' for calendar queries, + rolling summary
-    if any), call the local model."""
-    now = datetime.now().astimezone()
-    core = f"{SYSTEM_PROMPT}\n\nCurrent date/time: {now:%A, %Y-%m-%d %H:%M %Z}."
+    """Single reasoning step.
+
+    Message order is deliberate for latency: the *stable* persona (+ rolling
+    summary, which changes rarely) leads, so Ollama's prefix KV-cache is reused
+    across turns — a stable prompt re-evaluates ~10x faster than a changed one.
+    The volatile current date/time therefore goes in a trailing message *after*
+    the history, so it can't bust that cached prefix every minute (which it did
+    when it lived in the leading system prompt).
+    """
+    core = SYSTEM_PROMPT
     if state.get("summary"):
         core += f"\n\n---\nSummary of earlier conversation:\n{state['summary']}"
-    messages = [SystemMessage(core), *state["messages"]]
+    now = datetime.now().astimezone()
+    time_note = SystemMessage(f"(For reference, the current date/time is {now:%A, %Y-%m-%d %H:%M %Z}.)")
+    messages = [SystemMessage(core), *state["messages"], time_note]
     return {"messages": [_llm.invoke(messages)]}
 
 

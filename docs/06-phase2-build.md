@@ -283,9 +283,19 @@ email to me saying hi" → `✉️ Drafting…` → Approve/Reject → Approve �
   put in the `to` field, so it stalls. Fixed by `create_draft` resolving `me`/`myself`/`self` →
   `get_own_address()`, plus a persona rule to pass `to="me"` and not ask. If it regresses, check
   both.
-- **Turn feels silent / very slow** → the local 7B is genuinely slow (~30–60s), worse on a cold
-  model. The live status narration (Step 8) covers the wait; `keep_alive` on Ollama and, ultimately,
-  the Mac mini's larger model are the real latency fixes (later).
+- **Turn feels silent / very slow** → the local 7B is genuinely slow, but a big chunk was
+  self-inflicted. Three fixes landed (all in this phase's polish):
+  - **Prompt-cache busting (the big one).** Ollama re-uses the KV cache for a *stable* prompt
+    prefix (~10× faster prompt-eval: 6.3s → 0.6s on ~2.8k input tokens). Injecting the
+    minute-precision date into the *leading* system prompt changed the prefix every turn and
+    defeated the cache. Fix: the persona leads (stable), the volatile date is a *trailing* message
+    after history (`app/agent/graph.py` `_agent_node`). Subsequent turns dropped ~10s → ~4s. **If
+    you ever add per-turn-varying text, keep it out of the leading system prompt.**
+  - **Cold reload.** Ollama unloads after ~5 min idle; `app/warmup.py` pings the *native*
+    `/api/generate` with `keep_alive=-1` on a daemon (the OpenAI endpoint ignores keep_alive).
+  - **Perceived latency.** The reply streams token-by-token into its own message (Step 8), so the
+    ~4s of generation (~14 tok/s, the inherent 7B floor) types out live instead of arriving as a
+    silent block. The Mac mini's larger model is the real fix for raw speed.
 - **Draft created before approval** → would mean a tool did its side effect before
   `require_approval()`. `interrupt()` re-runs the node from the top, so any pre-interrupt side
   effect runs twice and un-gated. Keep the write strictly after the gate (see Step 5).

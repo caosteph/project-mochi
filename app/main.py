@@ -7,6 +7,7 @@ gets wired in here in Phase 3.
 import logging
 
 from app.channels.telegram import TelegramChannel
+from app.warmup import start_keep_warm
 
 
 def main() -> None:
@@ -14,6 +15,7 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    start_keep_warm()  # keep the local model resident so idle-gap replies aren't slow
     TelegramChannel().run()
 
 

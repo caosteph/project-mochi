@@ -48,5 +48,10 @@ class Settings(BaseSettings):
     google_client_secret_path: str = "data/google_client_secret.json"
     google_token_path: str = "data/google_token.json"
 
+    # Keep the local model resident so a message after an idle gap isn't slow to
+    # reload (Ollama unloads after ~5 min idle by default). A background ping every
+    # this-many seconds keeps it warm; 0 disables. Must be < Ollama's idle timeout.
+    keep_warm_interval_seconds: int = 240
+
 
 settings = Settings()  # import this everywhere: `from app.config import settings`
