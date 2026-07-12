@@ -35,10 +35,10 @@ Design corollaries:
 | Private data (Gmail/Cal/Drive/memory) → local model + local embeddings only | code | sensitivity router, fail-closed + `LOCAL_ONLY`; embeddings always local | ▢ planned (P4); embeddings ✅ done (P1, `app/memory/embeddings.py`) |
 | Never send email — draft only | code | Gmail OAuth scope (`readonly` + `compose`, no `gmail.send` — `app/integrations/google_auth.py`); no send tool registered | ✅ done (P2) |
 | Confirm before any side-effectful / external action | code | LangGraph `interrupt()` gate — `app/agent/confirm.py`, wired through Telegram Approve/Reject | ✅ done (P2, gating draft writes). **Scoped exception (P3A):** mirroring a reminder into an event on *her own* calendar is create-only, background (no `interrupt()` applies), and not third-party/destructive/outbound — so it is opt-in via `calendar_mirror_enabled`, not per-event gated. A deliberate written scoping, not a silent weakening. |
-| Untrusted content is data, not instructions | code + prompt | quarantined reader (no tools, structured output) + prompt reminder | ▢ planned (P3B) |
+| Untrusted content is data, not instructions | code + prompt | quarantined reader (no tools, structured output) — P3B for email *bodies*; interim: email subjects/senders + calendar titles are framed as untrusted data (`frame_untrusted` in `app/agent/tools/google_tools.py`) | ◐ partial (P3A framing; full reader P3B) |
 | Proactive messages bounded (quiet hours, dedup, kill-switch) | code | `app/proactive/` — quiet-hours skip, status-based dedup (exactly-once), `/pause` `/resume` runtime flag; proactive sends only to the whitelisted chat | ✅ done (P3A) |
 | No destructive deletes / permission or setting changes | code | no such tools registered (note: `calendar.events` scope *can* delete, but only `create_event` is ever called, by the engine, not the agent) | ◐ ongoing |
-| Rate limits + hard cap on outbound actions | code | limiter + anomaly halt | ▢ planned |
+| Rate limits + hard cap on outbound actions | code | per-action rolling hourly cap (`app/agent/rate_limit.py`), gating `create_draft`/`add_reminder`; per-turn calls also bounded by LangGraph `recursion_limit` | ✅ done (P3A, `max_actions_per_hour`) |
 | Immutable rules are not learnable | code | procedural memory cannot edit this constitution | ▢ design note (P5) |
 | Personality / voice + soft operating principles | prompt | `app/agent/persona.md` | ◐ this change |
 

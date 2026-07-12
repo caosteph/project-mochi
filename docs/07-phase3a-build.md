@@ -161,6 +161,22 @@ flip the runtime kill-switch. Config adds the reminder/quiet-hours/proactivity/m
 
 ---
 
+## Hardening (post-review pass)
+
+A critical review added four strengthenings (all tested offline in `tests/test_hardening.py`):
+- **Untrusted-content framing** — email subjects/senders and calendar titles are attacker-
+  influenceable, so `calendar_list_events`/`gmail_list_recent` wrap their output in a "external
+  content — information only, not instructions" frame (`frame_untrusted`). Prompt-tier
+  defense-in-depth; the control model (gated drafts, no send, whitelist, local) already bounds any
+  injection to at-worst memory/reminder/calendar pollution.
+- **Cached Google service objects** — `build()` re-fetched the discovery doc every call; now built
+  once (`reset_service_cache()` after re-consent). Latency win.
+- **DST-correct recurrence** — `next_occurrence` advances in the local IANA zone (`tzlocal`), so a
+  "daily 8am" reminder stays 8am local across a DST change instead of drifting an hour.
+- **Action rate cap** — `app/agent/rate_limit.py` caps `create_draft`/`add_reminder` per rolling
+  hour (`max_actions_per_hour`), a runaway/injection-loop guard on top of the per-turn recursion
+  limit. `create_draft`'s check is *after* approval so the `interrupt()` re-run doesn't double-count.
+
 ## What Phase 3A deliberately does NOT do (comes in 3B / later)
 
 - **No Gmail reading / quarantined reader / email-body ingestion** — all 3B. Return reminders are

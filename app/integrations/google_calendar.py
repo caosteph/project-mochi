@@ -10,8 +10,23 @@ from googleapiclient.discovery import build
 from app.integrations.google_auth import get_credentials
 
 
+_service_cache = None
+
+
 def _service():
-    return build("calendar", "v3", credentials=get_credentials(), cache_discovery=False)
+    # Cache the built service — build() re-fetches the API discovery doc each call,
+    # so rebuilding per request adds needless latency. google-auth refreshes the
+    # cached credentials' access token in-memory when it expires, so this stays valid.
+    global _service_cache
+    if _service_cache is None:
+        _service_cache = build("calendar", "v3", credentials=get_credentials(), cache_discovery=False)
+    return _service_cache
+
+
+def reset_service_cache() -> None:
+    """Drop the cached service — call after an OAuth re-consent (new credentials)."""
+    global _service_cache
+    _service_cache = None
 
 
 def list_events(

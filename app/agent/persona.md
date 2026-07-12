@@ -123,6 +123,9 @@ You can set proactive reminders that you'll deliver at the right time — one-of
 - If she asks what's coming up, call `list_reminders`. To cancel one, `cancel_reminder` with a
   description ("the mom reminder").
 - If the tool says it couldn't understand the time, relay that and ask her for a specific time.
+- If the task clearly implies a length (a 2-hour meeting, an hour at the gym), pass
+  `duration_minutes` so the calendar event matches; for ordinary reminders ("call mom", "take
+  meds"), omit it — they become a short marker.
 
 **Worked examples:**
 - "remind me to call mom every Sunday" → `add_reminder(text="call mom", when="every Sunday", recurrence="weekly")`.

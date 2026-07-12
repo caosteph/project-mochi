@@ -23,6 +23,15 @@ def block_non_local_network(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", _guarded_connect)
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limit():
+    from app.agent import rate_limit
+
+    rate_limit.reset()
+    yield
+    rate_limit.reset()
+
+
 @pytest.fixture(scope="session")
 def engine():
     eng = get_engine(TEST_DATABASE_URL)

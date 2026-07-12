@@ -19,10 +19,22 @@ from app.integrations.google_auth import get_credentials
 
 
 _own_address: str | None = None
+_service_cache = None
 
 
 def _service():
-    return build("gmail", "v1", credentials=get_credentials(), cache_discovery=False)
+    # Cached — see google_calendar._service() for why (build() re-fetches discovery).
+    global _service_cache
+    if _service_cache is None:
+        _service_cache = build("gmail", "v1", credentials=get_credentials(), cache_discovery=False)
+    return _service_cache
+
+
+def reset_service_cache() -> None:
+    """Drop the cached service — call after an OAuth re-consent (new credentials)."""
+    global _service_cache, _own_address
+    _service_cache = None
+    _own_address = None
 
 
 def get_own_address(*, service=None) -> str:

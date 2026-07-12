@@ -6,15 +6,19 @@ Natural-language time parsing is done by `dateparser` here, NOT by the flaky 7B 
 the model just decides *to* set a reminder and hands over the phrase.
 """
 
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 
 import dateparser
 from dateutil.relativedelta import relativedelta
 from sqlmodel import Session, select
+from tzlocal import get_localzone
 
 from app.config import settings
 from app.memory.models import Purchase, Recurrence, Reminder, ReminderKind, ReminderStatus
+
+log = logging.getLogger(__name__)
 
 _RECURRENCES = {r.value for r in Recurrence}
 _WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
@@ -112,19 +116,39 @@ def parse_when(when: str, recurrence: str | None = None, *, now: datetime | None
 
 def next_occurrence(due_at: datetime, recurrence: str, now: datetime) -> datetime:
     """The next occurrence strictly after `now` — advancing by whole periods and
-    SKIPPING any missed slots (so downtime yields one nudge, not a catch-up burst)."""
-    nxt = due_at
-    if recurrence == Recurrence.MONTHLY.value:
-        while nxt <= now:
-            nxt = nxt + relativedelta(months=1)
-        return nxt
-    step = timedelta(days=1) if recurrence == Recurrence.DAILY.value else timedelta(weeks=1)
-    while nxt <= now:
-        nxt = nxt + step
-    return nxt
+    SKIPPING any missed slots (so downtime yields one nudge, not a catch-up burst).
+
+    Computed in the local IANA zone (DST-aware) so a "daily 8am" reminder stays 8am
+    *local* across a DST change, instead of drifting an hour (which a fixed UTC delta
+    would cause). `relativedelta` on a zone-aware datetime preserves wall-clock; the
+    zone supplies the right offset for the new date."""
+    step = {
+        Recurrence.DAILY.value: relativedelta(days=1),
+        Recurrence.WEEKLY.value: relativedelta(weeks=1),
+        Recurrence.MONTHLY.value: relativedelta(months=1),
+    }[recurrence]
+    local = due_at.astimezone(get_localzone())
+    while local.astimezone(timezone.utc) <= now:
+        local = local + step
+    return local.astimezone(timezone.utc)
 
 
 # --- creation --------------------------------------------------------------
+
+def _maybe_mirror(
+    session: Session, reminder: Reminder, duration_minutes: int | None, mirror: bool | None
+) -> None:
+    """Mirror to Google Calendar if enabled — best-effort (a mirror failure must
+    never lose the reminder itself). Both creation paths call this, so user and
+    return reminders behave the same."""
+    do_mirror = settings.calendar_mirror_enabled if mirror is None else mirror
+    if not do_mirror:
+        return
+    try:
+        mirror_reminder(session, reminder, duration_minutes=duration_minutes)
+    except Exception:  # the reminder stands even if the calendar write fails — but log it
+        log.warning("Calendar mirror failed for reminder %s (reminder still active)", reminder.id, exc_info=True)
+
 
 def create_reminder(
     session: Session,
@@ -132,10 +156,13 @@ def create_reminder(
     text: str,
     when: str,
     recurrence: str | None = None,
+    duration_minutes: int | None = None,
+    mirror: bool | None = None,
     now: datetime | None = None,
 ) -> Reminder:
-    """Create a user reminder from a natural-language time. Raises
-    ReminderParseError on an unparseable/past time (nothing is created)."""
+    """Create a user reminder from a natural-language time, and (if mirroring is on)
+    a matching calendar event whose length is `duration_minutes` or a short default.
+    Raises ReminderParseError on an unparseable/past time (nothing is created)."""
     due_at, rec = parse_when(when, recurrence, now=now)
     reminder = Reminder(
         text=text, due_at=due_at, recurrence=rec, kind=ReminderKind.GENERIC.value,
@@ -144,15 +171,17 @@ def create_reminder(
     session.add(reminder)
     session.commit()
     session.refresh(reminder)
+    _maybe_mirror(session, reminder, duration_minutes, mirror)
     return reminder
 
 
 def create_return_reminder(
-    session: Session, purchase: Purchase, *, now: datetime | None = None
+    session: Session, purchase: Purchase, *, mirror: bool | None = None, now: datetime | None = None
 ) -> Reminder | None:
     """Create a one-off return reminder from a Purchase — `reminder_lead_days`
-    before the window closes (clamped to now). Deduped per purchase; returns None
-    if there's no return_by or a reminder already exists for this purchase."""
+    before the window closes (clamped to now) — and mirror it to the calendar like
+    any other timed reminder. Deduped per purchase; returns None if there's no
+    return_by or a reminder already exists for this purchase."""
     if purchase.return_by is None:
         return None
     now = now or datetime.now(timezone.utc)
@@ -173,6 +202,7 @@ def create_return_reminder(
     session.add(reminder)
     session.commit()
     session.refresh(reminder)
+    _maybe_mirror(session, reminder, None, mirror)
     return reminder
 
 
@@ -234,16 +264,23 @@ def snooze(session: Session, reminder_id: int, *, now: datetime | None = None) -
     return reminder
 
 
-def mirror_reminder(session: Session, reminder: Reminder, *, service=None) -> str | None:
+def mirror_reminder(
+    session: Session, reminder: Reminder, *, duration_minutes: int | None = None, service=None
+) -> str | None:
     """Create a Google Calendar event for a timed reminder so it fires even if the
     app is down. Idempotent (skips if already mirrored). `service` is injectable for
-    tests; google_calendar is imported lazily to keep this module's core network-free."""
+    tests; google_calendar is imported lazily to keep this module's core network-free.
+
+    The event's length is `duration_minutes` (the model estimates it from the task
+    when it implies one, e.g. a 2-hour meeting) or a short default — it's cosmetic:
+    the popup fires at the start regardless, and a reminder is a moment, not a block."""
     if reminder.calendar_event_id:
         return reminder.calendar_event_id
     from app.integrations import google_calendar
 
+    minutes = duration_minutes or settings.reminder_event_default_minutes
     start = reminder.due_at
-    end = start + timedelta(hours=1)
+    end = start + timedelta(minutes=minutes)
     event = google_calendar.create_event(
         summary=f"⏰ {reminder.text}",
         start_iso=start.isoformat(),

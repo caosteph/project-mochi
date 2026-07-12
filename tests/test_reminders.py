@@ -18,6 +18,13 @@ from app.proactive import jobs, reminders
 UTC = timezone.utc
 
 
+@pytest.fixture(autouse=True)
+def _no_calendar_mirror(monkeypatch):
+    # These tests exercise the engine, not Google — keep create_* from mirroring
+    # (which would hit the network and trip the no-network guard).
+    monkeypatch.setattr("app.config.settings.calendar_mirror_enabled", False)
+
+
 # --- schema evolution (the create_all-won't-alter bug) ---------------------
 
 def test_init_db_adds_new_reminder_columns(engine):
@@ -206,3 +213,25 @@ def test_mirror_reminder_creates_event_once(engine):
         service.events().insert.reset_mock()
         reminders.mirror_reminder(s, r, service=service)
         service.events().insert.assert_not_called()
+
+
+def test_mirror_reminder_duration(engine):
+    with Session(engine) as s:
+        r = _seed(s, "2-hour meeting", datetime(2026, 7, 20, 12, 0, tzinfo=UTC))
+        service = MagicMock()
+        service.events().insert().execute.return_value = {"id": "e"}
+        reminders.mirror_reminder(s, r, duration_minutes=120, service=service)
+        _, kwargs = service.events().insert.call_args
+        start = datetime.fromisoformat(kwargs["body"]["start"]["dateTime"])
+        end = datetime.fromisoformat(kwargs["body"]["end"]["dateTime"])
+        assert (end - start) == timedelta(minutes=120)  # honors the estimated duration
+
+    with Session(engine) as s:
+        r = _seed(s, "call mom", datetime(2026, 7, 20, 12, 0, tzinfo=UTC))
+        service = MagicMock()
+        service.events().insert().execute.return_value = {"id": "e2"}
+        reminders.mirror_reminder(s, r, service=service)  # no duration → short default
+        _, kwargs = service.events().insert.call_args
+        start = datetime.fromisoformat(kwargs["body"]["start"]["dateTime"])
+        end = datetime.fromisoformat(kwargs["body"]["end"]["dateTime"])
+        assert (end - start) == timedelta(minutes=15)  # settings.reminder_event_default_minutes

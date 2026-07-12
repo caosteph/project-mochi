@@ -59,7 +59,9 @@ def main() -> None:
         s.add(p)
         s.commit()
         s.refresh(p)
-        reminders.create_return_reminder(s, p, now=now)  # due now (window closes < lead)
+        # mirror=False so this milestone check doesn't leave a real calendar event
+        # behind; the calendar create/delete round-trip is exercised separately below.
+        reminders.create_return_reminder(s, p, mirror=False, now=now)
         bot = RecordingBot()
         # Disable quiet hours for the check so it isn't time-of-day-dependent.
         from app.config import settings

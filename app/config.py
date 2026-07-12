@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     quiet_hours_start: int = 21            # no proactive nudges from 9pm…
     quiet_hours_end: int = 8               # …until 8am (local wall-clock)
     calendar_mirror_enabled: bool = True   # mirror timed reminders into Google Calendar events
+    reminder_event_default_minutes: int = 15  # calendar-event length when the task implies no duration
+
+    # Cross-turn cap on side-effectful agent actions (draft/reminder creation) — a
+    # runaway/injected-loop guard, per action type, per rolling hour.
+    max_actions_per_hour: int = 30
 
 
 settings = Settings()  # import this everywhere: `from app.config import settings`
