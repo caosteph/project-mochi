@@ -41,6 +41,7 @@ from app.channels.base import Channel
 from app.config import settings
 from app.memory import store
 from app.memory.db import get_engine
+from app.memory.models import EmailSignal, SignalStatus
 from app.proactive import jobs, reminders
 
 log = logging.getLogger(__name__)
@@ -112,6 +113,9 @@ class TelegramChannel(Channel):
         if data.startswith("rem:"):
             await self._on_reminder_button(chat_id, ctx, data)
             return
+        if data.startswith("sig:"):
+            await self._on_signal_button(chat_id, ctx, data)
+            return
         # Otherwise it's a draft approve/reject: resume the paused graph.
         interrupt_payload, reply, error = await self._run_with_status(
             chat_id, ctx, Command(resume={"approved": data == "approve"}), announce_thinking=False
@@ -141,6 +145,39 @@ class TelegramChannel(Channel):
             await ctx.bot.send_message(
                 chat_id=chat_id, text=f"⏰ Snoozed — I'll remind you again {reminder.due_at.astimezone():%a %-I:%M %p}."
             )
+
+    async def _on_signal_button(self, chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, data: str) -> None:
+        # data is "sig:approve:<id>" or "sig:reject:<id>" — Stephanie's yes/no to a
+        # proactively-detected email signal. Approve → create the reminder; reject →
+        # dismiss. DB work off the event loop, matching the reminder-button handler.
+        _, action, sid = data.split(":")
+        signal_id = int(sid)
+
+        def apply():
+            with Session(get_engine()) as session:
+                signal = session.get(EmailSignal, signal_id)
+                if signal is None:
+                    return None
+                if action == "approve":
+                    reminder = reminders.create_from_signal(session, signal)
+                    return ("approve", reminder.text, reminder.due_at)
+                signal.status = SignalStatus.DISMISSED.value
+                session.add(signal)
+                session.commit()
+                return ("reject", None, None)
+
+        result = await asyncio.to_thread(apply)
+        if result is None:
+            await ctx.bot.send_message(chat_id=chat_id, text="That one's already gone.")
+            return
+        kind, text, due_at = result
+        if kind == "approve":
+            await ctx.bot.send_message(
+                chat_id=chat_id,
+                text=f"✅ I'll remind you — {text} ({due_at.astimezone():%a %b %-d, %-I:%M %p}).",
+            )
+        else:
+            await ctx.bot.send_message(chat_id=chat_id, text="👍 Skipped — I won't set that one.")
 
     async def _on_pause(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._authorized(update):
@@ -343,6 +380,11 @@ class TelegramChannel(Channel):
         # Proactive reminder-tick (JobQueue = APScheduler on the bot's own loop).
         app.job_queue.run_repeating(
             jobs.reminder_tick_job, interval=settings.reminder_tick_interval_seconds, first=10
+        )
+        # Email-signal ingestion (~6h): the quarantined reader scans recent mail and
+        # pushes approval asks for anything actionable it finds.
+        app.job_queue.run_repeating(
+            jobs.signal_ingest_job, interval=settings.signal_scan_interval_seconds, first=30
         )
         log.info("Telegram channel started (long-polling). Whitelisted chat: %s", settings.telegram_chat_id)
         app.run_polling()

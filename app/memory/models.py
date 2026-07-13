@@ -1,6 +1,7 @@
-"""SQLModel tables for Phase 1 memory. Purchase and Relationship are deliberately
-absent here — see docs/05-phase1-build.md's scope-trim note: Purchase only means
-something once Phase 3's Gmail pipeline can populate it, and Relationship is Phase 5.
+"""SQLModel tables. Phase 1 added the memory core (Fact/Goal/Task/Reminder/Event/
+MessageLog); Phase 3A added Purchase; Phase 3B added the email-signal pipeline tables
+(EmailSignal/ProcessedEmail/IngestState). Relationship is still deliberately absent
+(Phase 5) — see docs/05-phase1-build.md's scope-trim note.
 """
 
 from datetime import datetime, timezone
@@ -58,6 +59,31 @@ class Recurrence(str, Enum):
     DAILY = "daily"
     WEEKLY = "weekly"
     MONTHLY = "monthly"
+
+
+class SignalType(str, Enum):
+    """The kind of actionable item the quarantined reader found in an email.
+    A return is just one type — the whole point of Phase 3B is that this is a
+    general pipeline, not a receipt-specific one. Adding a new type (e.g. a
+    flight itinerary) is a new value here + one line of phrasing in suggest_text."""
+    RETURN = "return"
+    BILL = "bill"
+    APPOINTMENT = "appointment"
+    DEADLINE = "deadline"
+    DELIVERY = "delivery"
+    OTHER = "other"
+
+
+class SignalStatus(str, Enum):
+    DETECTED = "detected"      # extracted, approval ask not yet sent
+    ASKED = "asked"            # approval ask sent, awaiting her yes/no (never re-asked)
+    CONFIRMED = "confirmed"    # approved → a reminder was created
+    DISMISSED = "dismissed"    # she said no
+
+
+# Deadline-style signals fire a reminder BEFORE the due date (lead time); the
+# others fire at the date. Consumed by reminders.create_from_signal.
+DEADLINE_SIGNAL_TYPES = {SignalType.RETURN.value, SignalType.BILL.value, SignalType.DEADLINE.value}
 
 
 class Fact(SQLModel, table=True):
@@ -132,6 +158,45 @@ class Event(SQLModel, table=True):
     embedding: list[float] | None = Field(default=None, sa_column=Column(Vector(768), nullable=True))
     occurred_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
     created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+
+
+class EmailSignal(SQLModel, table=True):
+    """The general actionable item extracted from one email by the quarantined
+    reader (app/agent/quarantine.py). Only these validated, length-capped fields
+    are ever stored — never the raw email body (privacy + injection safety, rule
+    #4). Lifecycle: detected → (approval) → confirmed | dismissed. On confirm, a
+    reminder is created and linked via reminder_id."""
+    id: int | None = Field(default=None, primary_key=True)
+    source: str  # "gmail:<message-id>"
+    signal_type: str = Field(default=SignalType.OTHER.value, sa_column=Column(String, index=True))
+    title: str
+    summary: str | None = None
+    due_date: datetime | None = Field(default=None, sa_column=_tz_column(nullable=True))
+    amount: float | None = None
+    currency: str | None = None
+    status: str = Field(default=SignalStatus.DETECTED.value, sa_column=Column(String, index=True))
+    reminder_id: int | None = Field(default=None, foreign_key="reminder.id")
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+
+
+class ProcessedEmail(SQLModel, table=True):
+    """Dedup log for the receipt/signal scan: EVERY scanned message-id is recorded
+    (not just the ones that yielded a signal), so a non-actionable email is never
+    re-run through the model on the next scan. Stores only the id + an outcome tag
+    — never any email content."""
+    id: int | None = Field(default=None, primary_key=True)
+    message_id: str = Field(sa_column=Column(String, unique=True, index=True))
+    outcome: str  # "signal" | "skipped" | "baseline" | "error"
+    processed_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+
+
+class IngestState(SQLModel, table=True):
+    """Single-row marker for the email scan. `initialized_at` being set means the
+    first (baseline) scan has run — implementing go-forward-only ingestion (no
+    backfill of the pre-existing inbox) without a fragile 'is ProcessedEmail empty'
+    heuristic."""
+    id: int | None = Field(default=None, primary_key=True)
+    initialized_at: datetime | None = Field(default=None, sa_column=_tz_column(nullable=True))
 
 
 class MessageLog(SQLModel, table=True):

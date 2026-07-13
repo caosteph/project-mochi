@@ -1,21 +1,28 @@
-"""Thin Gmail wrapper: metadata-only reads and draft creation. Never sends.
+"""Thin Gmail wrapper: metadata-only reads, draft creation, and (Phase 3B) a
+single body-reading function reserved for the quarantined reader. Never sends.
 
-Decision (Phase 2, docs/06-phase2-build.md): the privileged agent must NOT ingest
-raw email bodies (safety rule #4 — untrusted content is data, never instructions;
-the quarantined reader that safely parses bodies lands in Phase 3). So
-list_recent_metadata returns only From/Subject/Date — never the body, and never the
-Gmail `snippet` (which is body-derived). Drafts are created via gmail.compose scope;
-there is no send function anywhere by construction.
+Decision (Phase 2, docs/06-phase2-build.md): the *privileged agent* must NOT ingest
+raw email bodies (safety rule #4 — untrusted content is data, never instructions).
+So the agent-facing tools (list_recent_metadata) return only From/Subject/Date —
+never the body, never the Gmail `snippet`. Phase 3B adds `get_message_body`, which
+reads the full body, but it is used **solely by the quarantined reader**
+(app/agent/quarantine.py → app/proactive/email_signals.py) — never wired into an
+agent tool. The reader has no tools and emits only validated structured data, so a
+malicious body can't act. Drafts are created via gmail.compose scope; there is no
+send function anywhere by construction.
 
 Functions take an optional pre-built `service` for offline unit testing against a mock.
 """
 
 import base64
 from email.message import EmailMessage
+from html.parser import HTMLParser
 
 from googleapiclient.discovery import build
 
 from app.integrations.google_auth import get_credentials
+
+_BODY_MAX_CHARS = 20_000  # bound the reader's input regardless of email size
 
 
 _own_address: str | None = None
@@ -102,3 +109,92 @@ def delete_draft(draft_id: str, *, service=None) -> None:
     """Delete a draft by id — used by verify_phase2.py to clean up after a live test."""
     service = service or _service()
     service.users().drafts().delete(userId="me", id=draft_id).execute()
+
+
+# --- Phase 3B: body reading for the quarantined reader ONLY -----------------
+
+class _TextExtractor(HTMLParser):
+    """Collect visible text from HTML, dropping <script>/<style> content. Stdlib
+    only — no BeautifulSoup dependency. Good enough to feed a parser model; we
+    don't need perfect rendering, just the words."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._parts: list[str] = []
+        self._skip = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag in ("script", "style", "head"):
+            self._skip += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("script", "style", "head") and self._skip:
+            self._skip -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip and data.strip():
+            self._parts.append(data.strip())
+
+    def text(self) -> str:
+        return " ".join(self._parts)
+
+
+def _html_to_text(html: str) -> str:
+    parser = _TextExtractor()
+    try:
+        parser.feed(html)
+    except Exception:
+        return html  # malformed markup → fall back to the raw string
+    return parser.text()
+
+
+def search_message_ids(query: str, max_results: int = 25, *, service=None) -> list[str]:
+    """Return the message-ids matching a Gmail search query, newest first."""
+    service = service or _service()
+    resp = (
+        service.users().messages().list(userId="me", maxResults=max_results, q=query).execute()
+    )
+    return [m["id"] for m in resp.get("messages", [])]
+
+
+def _decode_part(part: dict) -> str:
+    data = part.get("body", {}).get("data")
+    if not data:
+        return ""
+    return base64.urlsafe_b64decode(data.encode()).decode("utf-8", errors="replace")
+
+
+def _walk_for_body(payload: dict) -> str:
+    """Prefer text/plain; fall back to text/html (stripped). Recurses MIME parts."""
+    mime = payload.get("mimeType", "")
+    if mime == "text/plain":
+        return _decode_part(payload)
+    if mime == "text/html":
+        return _html_to_text(_decode_part(payload))
+    plain, html = "", ""
+    for part in payload.get("parts", []) or []:
+        got = _walk_for_body(part)
+        if not got:
+            continue
+        if part.get("mimeType") == "text/plain":
+            plain = plain or got
+        else:
+            html = html or got
+    return plain or html
+
+
+def get_message_body(message_id: str, *, service=None) -> dict:
+    """Read one message's headers + plain-text body. RESERVED FOR THE QUARANTINED
+    READER — never wire this into an agent tool (see module docstring / rule #4).
+    Returns {from, subject, date, body_text}; body_text is length-bounded."""
+    service = service or _service()
+    msg = service.users().messages().get(userId="me", id=message_id, format="full").execute()
+    payload = msg.get("payload", {})
+    headers = {h["name"]: h["value"] for h in payload.get("headers", [])}
+    body = _walk_for_body(payload)[:_BODY_MAX_CHARS]
+    return {
+        "from": headers.get("From"),
+        "subject": headers.get("Subject"),
+        "date": headers.get("Date"),
+        "body_text": body,
+    }

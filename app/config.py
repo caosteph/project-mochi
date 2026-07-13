@@ -67,5 +67,13 @@ class Settings(BaseSettings):
     # runaway/injected-loop guard, per action type, per rolling hour.
     max_actions_per_hour: int = 30
 
+    # Email signal ingestion (Phase 3B) — the quarantined reader scans recent mail,
+    # extracts a typed actionable signal, and proactively asks before creating a reminder.
+    signal_scanning_enabled: bool = True        # kill-switch for reading email bodies at all
+    signal_scan_interval_seconds: int = 21600   # ~6h between scans
+    signal_scan_window_days: int = 3            # Gmail `newer_than` window per scan (overlap safety)
+    signal_max_per_scan: int = 5                # cap on bodies fetched + reader calls per scan (cost bound)
+    signal_default_return_days: int = 30        # fallback return window when a `return` states no date
+
 
 settings = Settings()  # import this everywhere: `from app.config import settings`

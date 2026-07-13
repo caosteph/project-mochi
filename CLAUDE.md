@@ -19,8 +19,24 @@ The full plan, learning docs, and per-phase build guides live in this repo's **`
 - `docs/05-phase1-build.md` — memory core: schema, embeddings, hybrid recall, tool-calling loop.
 - `docs/06-phase2-build.md` — Google (direct API): OAuth, calendar/gmail tools, the approval gate.
 - `docs/07-phase3a-build.md` — proactive reminder engine: scheduler, add/list/cancel, calendar mirror.
+- `docs/08-phase3b-build.md` — quarantined reader (dual-LLM) + general email-signal pipeline.
 
 ## Current status
+
+**Phase 3B — safe email reading (quarantined reader + general signal pipeline).** Mochi now reads
+untrusted email *bodies* — the project's most dangerous surface — via the **dual-LLM / quarantined
+reader** (`app/agent/quarantine.py`): a *separate, tool-free, persona-free* local model that parses an
+email into a validated, length-capped structured object; the privileged agent never sees the raw body,
+which is never persisted or logged. It's a **general** pipeline (`app/proactive/email_signals.py`): a
+~6h background job scans recent mail (dedup + go-forward-only first run), the reader extracts a typed
+**actionable signal** (return / bill / appointment / deadline / delivery), and Mochi proactively **asks
+first** (`sig:approve/reject` buttons) before `create_from_signal` makes a reminder (per-type lead-time
++ calendar mirror). A return is just one `signal_type` — the flagship return-window flow is now
+automatic, but so are bills/appointments/etc. Cost is bounded by a per-scan cap on reader calls;
+`signal_scanning_enabled` is a kill-switch. No new agent tool (reading stays off the tool list) and no
+new OAuth scope. Verified offline (`tests/test_email_signals.py`, 20 tests) **and against the real 7B**
+(`scripts/verify_phase3b.py`: 5/5 extraction across types, injection refused). See
+`docs/08-phase3b-build.md`.
 
 **Phase 3A — proactive reminder engine.** Builds on Phase 2. Mochi can now be *proactive* — the
 channel pushes unprompted reminders, not just responses. 10 tools: memory + Google + reminders

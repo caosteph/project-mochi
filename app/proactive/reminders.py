@@ -16,7 +16,17 @@ from sqlmodel import Session, select
 from tzlocal import get_localzone
 
 from app.config import settings
-from app.memory.models import Purchase, Recurrence, Reminder, ReminderKind, ReminderStatus
+from app.memory.models import (
+    DEADLINE_SIGNAL_TYPES,
+    EmailSignal,
+    Purchase,
+    Recurrence,
+    Reminder,
+    ReminderKind,
+    ReminderStatus,
+    SignalStatus,
+    SignalType,
+)
 
 log = logging.getLogger(__name__)
 
@@ -202,6 +212,62 @@ def create_return_reminder(
     session.add(reminder)
     session.commit()
     session.refresh(reminder)
+    _maybe_mirror(session, reminder, None, mirror)
+    return reminder
+
+
+_SIGNAL_REMINDER_TEXT = {
+    SignalType.RETURN.value: "Return {t}",
+    SignalType.BILL.value: "Pay {t}",
+    SignalType.DELIVERY.value: "Look out for {t}",
+}
+
+
+def _signal_reminder_text(signal: EmailSignal) -> str:
+    return _SIGNAL_REMINDER_TEXT.get(signal.signal_type, "{t}").format(t=signal.title)
+
+
+def create_from_signal(
+    session: Session, signal: EmailSignal, *, mirror: bool | None = None, now: datetime | None = None
+) -> Reminder:
+    """Turn an approved EmailSignal into a reminder (and a mirrored calendar event).
+    This is the general path — a return is just one `signal_type`. Lead-time is by
+    type: deadline-style signals (return/bill/deadline) fire `reminder_lead_days`
+    BEFORE the due date (clamped to now), while appointment/delivery fire AT it. A
+    signal with no due date defaults to a next-day nudge. Idempotent: re-approving a
+    signal returns its existing reminder (linked via signal.reminder_id)."""
+    now = now or datetime.now(timezone.utc)
+    if signal.reminder_id is not None:
+        existing = session.get(Reminder, signal.reminder_id)
+        if existing is not None:
+            return existing
+
+    due = signal.due_date
+    if due is None:
+        due = now + timedelta(days=1)  # no date extracted → a gentle next-day nudge
+    elif signal.signal_type in DEADLINE_SIGNAL_TYPES:
+        due = due - timedelta(days=settings.reminder_lead_days)
+        if due < now:
+            due = now
+
+    kind = (
+        ReminderKind.RETURN_WINDOW.value
+        if signal.signal_type == SignalType.RETURN.value
+        else ReminderKind.GENERIC.value
+    )
+    reminder = Reminder(
+        text=_signal_reminder_text(signal), due_at=due, kind=kind,
+        status=ReminderStatus.PENDING.value,
+    )
+    session.add(reminder)
+    session.commit()
+    session.refresh(reminder)
+
+    signal.reminder_id = reminder.id
+    signal.status = SignalStatus.CONFIRMED.value
+    session.add(signal)
+    session.commit()
+
     _maybe_mirror(session, reminder, None, mirror)
     return reminder
 

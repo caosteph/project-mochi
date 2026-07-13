@@ -7,16 +7,18 @@ wedge all future proactivity. Nudge is sent THEN marked (bias to never-lost over
 never-duplicated).
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.config import settings
 from app.memory import store
 from app.memory.db import get_engine
-from app.proactive import reminders
+from app.memory.models import EmailSignal, SignalStatus
+from app.proactive import email_signals, reminders
 
 log = logging.getLogger(__name__)
 
@@ -75,3 +77,86 @@ async def reminder_tick_job(context) -> None:
             await run_reminder_tick(context.bot, session, settings.telegram_chat_id)
     except Exception:
         log.exception("reminder_tick_job crashed; will retry next interval")
+
+
+# --- Phase 3B: email-signal ingestion + proactive approval asks -------------
+
+def _signal_keyboard(signal_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✅ Yes", callback_data=f"sig:approve:{signal_id}"),
+                InlineKeyboardButton("❌ No", callback_data=f"sig:reject:{signal_id}"),
+            ]
+        ]
+    )
+
+
+async def send_pending_asks(bot, session: Session, chat_id: int, now: datetime | None = None) -> int:
+    """Push the approval ask for each detected-but-not-yet-asked signal, flipping it to
+    ASKED so it's never re-asked. Respects the /pause kill-switch and quiet hours (a
+    deferred ask just waits as DETECTED for the next non-quiet tick). Capped per run.
+    Each send in its own try/except. Returns the number of asks sent."""
+    now = now or datetime.now(timezone.utc)
+    if not _enabled:
+        return 0
+    if reminders.in_quiet_hours(now.astimezone()):
+        return 0
+
+    pending = session.exec(
+        select(EmailSignal)
+        .where(EmailSignal.status == SignalStatus.DETECTED.value)
+        .order_by(EmailSignal.created_at)
+    ).all()
+
+    asked = 0
+    for signal in pending:
+        if asked >= settings.signal_max_per_scan:
+            break
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=email_signals.suggest_text(signal),
+                reply_markup=_signal_keyboard(signal.id),
+            )
+            signal.status = SignalStatus.ASKED.value
+            session.add(signal)
+            session.commit()
+            store.log_message(session, chat_id=chat_id, role="assistant", text=f"[signal] {signal.title}")
+            asked += 1
+        except Exception:  # one failed ask must not abort the rest
+            log.exception("failed to send signal ask for %s; continuing", signal.id)
+    return asked
+
+
+async def run_signal_ingest_tick(
+    bot, session: Session, chat_id: int, *, service=None, extractor=None, now: datetime | None = None
+) -> int:
+    """Testable core: scan for new signals, then push any pending approval asks. In
+    tests, pass a mock bot + a mock Gmail `service` + a fake `extractor` for a fully
+    offline run. Returns the number of asks sent."""
+    now = now or datetime.now(timezone.utc)
+    if not _enabled or not settings.signal_scanning_enabled:
+        return 0
+    email_signals.ingest_signals(session, service=service, extractor=extractor, now=now)
+    return await send_pending_asks(bot, session, chat_id, now=now)
+
+
+def _ingest_blocking() -> None:
+    with Session(get_engine()) as session:
+        email_signals.ingest_signals(session)
+
+
+async def signal_ingest_job(context) -> None:
+    """PTB JobQueue callback (~6h). The heavy part — reading email bodies and running
+    the quarantined reader — is offloaded to a worker thread so it never blocks the
+    bot loop; the approval asks are then sent from the loop. Top-level try/except so a
+    failure never stops the scheduler."""
+    try:
+        if not _enabled or not settings.signal_scanning_enabled:
+            return
+        await asyncio.to_thread(_ingest_blocking)
+        with Session(get_engine()) as session:
+            await send_pending_asks(context.bot, session, settings.telegram_chat_id)
+    except Exception:
+        log.exception("signal_ingest_job crashed; will retry next interval")
