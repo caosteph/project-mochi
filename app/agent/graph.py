@@ -11,13 +11,14 @@ later phases.
 from datetime import datetime
 
 from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage, ToolMessage
-from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from psycopg import Connection
 
+from app.agent import router
 from app.agent.persona import build_system_prompt
+from app.agent.router import Sensitivity
 from app.agent.tools import ALL_TOOLS
 from app.config import settings
 from app.memory.db import init_db
@@ -38,25 +39,17 @@ class AgentState(MessagesState):
     summary: str
 
 
-_llm = ChatOpenAI(
-    base_url=settings.ollama_base_url,
-    api_key="ollama",  # Ollama ignores the key, but the OpenAI client requires one
-    model=settings.local_model,
-    # Lower than Phase 0's 0.7: tool-call adherence on a 7B local model degrades
-    # at higher temperature, and a broken "I'll remember that" promise is worse
-    # than slightly less playful phrasing. Verified empirically, not assumed —
-    # see docs/05-phase1-build.md's tool-invocation-reliability gotcha.
-    temperature=0.4,
-).bind_tools(ALL_TOOLS)
+# The main agent is the SENSITIVE path (it has memory + Google + persona) → the router
+# always resolves this to the LOCAL model. Going through the router (rather than building
+# ChatOpenAI directly) means "the main agent stays local" is enforced in one auditable
+# place, even if LOCAL_ONLY/hosted config later change. Temperature 0.4 is lower than
+# Phase 0's 0.7: tool-call adherence on a 7B degrades at higher temperature, and a broken
+# "I'll remember that" promise is worse than slightly less playful phrasing (see
+# docs/05-phase1-build.md's tool-invocation-reliability gotcha).
+_llm = router.chat_model(Sensitivity.SENSITIVE, temperature=0.4, tools=ALL_TOOLS)
 
-# Plain, tools-free model for summarization calls, so the summarizer itself
-# never tries to emit a tool call.
-_summarizer_llm = ChatOpenAI(
-    base_url=settings.ollama_base_url,
-    api_key="ollama",
-    model=settings.local_model,
-    temperature=0.3,
-)
+# Plain, tools-free local model for summarization, so the summarizer never emits a tool call.
+_summarizer_llm = router.chat_model(Sensitivity.SENSITIVE, temperature=0.3)
 
 
 def _agent_node(state: AgentState) -> dict:

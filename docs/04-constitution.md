@@ -32,7 +32,7 @@ Design corollaries:
 | Rule | Tier | Enforced where | Status |
 |------|------|----------------|--------|
 | Only respond to the whitelisted `chat_id` | code | `channels/telegram.py` whitelist | ✅ done (P0) |
-| Private data (Gmail/Cal/Drive/memory) → local model + local embeddings only | code | sensitivity router, fail-closed + `LOCAL_ONLY`; embeddings always local | ▢ planned (P4); embeddings ✅ done (P1, `app/memory/embeddings.py`) |
+| Private data (Gmail/Cal/Drive/memory) → local model + local embeddings only | code | deterministic sensitivity router (`app/agent/router.py`): SENSITIVE→local always, fails closed, `LOCAL_ONLY` overrides; embeddings always local. **Scoped (P4A, with Stephanie's say-so):** only *de-identified, PII-scrubbed, audited* derivatives may reach an opt-in **free** hosted model (`consult_expert`/`/ask`) — raw personal data never leaves; see the scoped-modification note below | ◐ done (P4A, router live); embeddings ✅ done (P1, `app/memory/embeddings.py`) |
 | Never send email — draft only | code | Gmail OAuth scope (`readonly` + `compose`, no `gmail.send` — `app/integrations/google_auth.py`); no send tool registered | ✅ done (P2) |
 | Confirm before any side-effectful / external action | code | LangGraph `interrupt()` gate — `app/agent/confirm.py`, wired through Telegram Approve/Reject | ✅ done (P2, gating draft writes). **Scoped exception (P3A):** mirroring a reminder into an event on *her own* calendar is create-only, background (no `interrupt()` applies), and not third-party/destructive/outbound — so it is opt-in via `calendar_mirror_enabled`, not per-event gated. A deliberate written scoping, not a silent weakening. |
 | Untrusted content is data, not instructions | code + prompt | quarantined reader for email *bodies* (`app/agent/quarantine.py`: separate local model, **no tools**, no persona, `json_schema` structured output, length-capped fields, raw body never persisted/logged or seen by the privileged agent); plus P3A framing of subjects/senders + calendar titles (`frame_untrusted`) | ✅ done for email bodies (P3B); framing ◐ ongoing for other surfaces (web/Drive later) |
@@ -43,6 +43,27 @@ Design corollaries:
 | Personality / voice + soft operating principles | prompt | `app/agent/persona.md` | ◐ this change |
 
 Status key: ✅ done · ◐ ongoing/partial · ▢ planned (phase noted).
+
+## Scoped modification — de-identified hosted delegation (P4A)
+
+The "private data → local only" rule was **deliberately scoped** in Phase 4A, with Stephanie's
+explicit say-so (the required process for a hard-tier change: edit the enforcing code *and* this
+table together). The scope:
+
+- **Still guaranteed in code:** *raw* personal data never leaves the machine. A deterministic scrubber
+  (`app/agent/sanitize.py`) hard-redacts known identifiers (name/email/phone + PII regexes) from
+  everything sent to the opt-in hosted model; `LOCAL_ONLY` or hosted-off means nothing is sent at all;
+  a PII-dense question is refused and answered locally (fails closed); the hosted model has no tools;
+  every hosted call is audited (`HostedConsult` → `/sent`), so nothing is silent.
+- **Best-effort, explicitly not guaranteed:** the local model producing a genuinely de-identified
+  question. A non-PII-but-sensitive phrase it fails to generalize could reach the hosted provider.
+  This is the residual risk Stephanie accepted in choosing the hybrid; it is bounded by the scrubber
+  and surfaced by the audit log, and its rate is *measured* (`scripts/verify_phase4a.py`), not assumed.
+- **Default is unchanged:** hosting is opt-in and off (`LOCAL_ONLY=true`); with it off, the system is
+  exactly as local as before.
+
+This is a written, auditable scoping — not a silent weakening. Reverting is a one-line switch
+(`HOSTED_ENABLED=false` / `LOCAL_ONLY=true`).
 
 ## How to change a rule
 

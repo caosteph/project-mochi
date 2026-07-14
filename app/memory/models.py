@@ -199,6 +199,18 @@ class IngestState(SQLModel, table=True):
     initialized_at: datetime | None = Field(default=None, sa_column=_tz_column(nullable=True))
 
 
+class HostedConsult(SQLModel, table=True):
+    """Audit log of every call to the opt-in hosted model (Phase 4A) — the exact
+    (already-scrubbed) text that left the machine, the answer, and how many redactions
+    the deterministic scrubber made. This is the transparency half of the de-identified
+    hybrid: Stephanie can review precisely what was sent externally (via /sent)."""
+    id: int | None = Field(default=None, primary_key=True)
+    sent_text: str
+    answer: str
+    n_redactions: int = 0
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+
+
 class MessageLog(SQLModel, table=True):
     """Populated by deterministic code (a call from channels/telegram.py after
     each turn), not by an LLM tool — separate from the checkpointer's internal

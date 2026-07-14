@@ -20,8 +20,27 @@ The full plan, learning docs, and per-phase build guides live in this repo's **`
 - `docs/06-phase2-build.md` — Google (direct API): OAuth, calendar/gmail tools, the approval gate.
 - `docs/07-phase3a-build.md` — proactive reminder engine: scheduler, add/list/cancel, calendar mirror.
 - `docs/08-phase3b-build.md` — quarantined reader (dual-LLM) + general email-signal pipeline.
+- `docs/09-phase4a-build.md` — sensitivity router + de-identified hosted delegation.
 
 ## Current status
+
+**Phase 4A — sensitivity router + de-identified hosted delegation.** The project's #1 privacy
+principle is now real code. `app/agent/router.py` deterministically picks local vs hosted **by data
+origin** (tagged in code, never by an LLM): SENSITIVE → local always; NON_SENSITIVE → an opt-in
+**free** hosted model only when enabled+configured and `LOCAL_ONLY` is off — else local (fails closed).
+The main agent + quarantined reader are the SENSITIVE path (always local); `graph.py` now builds its
+models through the router so that's enforced in one place. First live consumer + the capability
+Stephanie asked for: a **de-identified hybrid** — the local agent asks a stronger model a *generic,
+de-identified* question via the `consult_expert` tool (11 tools now), a **deterministic scrubber**
+(`app/agent/sanitize.py`) hard-redacts known identifiers + PII before anything leaves, the hosted model
+(no tools) answers, and the local agent re-personalizes. Every hosted call is **audited**
+(`HostedConsult` → `/sent`), it **refuses PII-dense questions** (fails closed), and `/ask` is a
+pure-generic path touching no memory/Google. This is a **deliberate, Stephanie-authorized scoped
+modification** of the "personal data → local only" hard rule (see `docs/04-constitution.md`): raw
+personal data never leaves (guaranteed); the local model's de-identification is best-effort (measured,
+not assumed) and backstopped + audited. Off by default (`LOCAL_ONLY=true`). Verified offline (15 tests)
++ against the real 7B (`scripts/verify_phase4a.py`: scrub 100%, de-id 5/5, local `/ask` round-trip).
+See `docs/09-phase4a-build.md`.
 
 **Phase 3B — safe email reading (quarantined reader + general signal pipeline).** Mochi now reads
 untrusted email *bodies* — the project's most dangerous surface — via the **dual-LLM / quarantined
@@ -69,9 +88,14 @@ weaken them without Stephanie's explicit say-so.
 
 1. **Privacy — data origin decides the model, deterministically.** Anything sourced from
    Gmail/Calendar/Drive/memory or Stephanie's personal data is **sensitive → local model +
-   local embeddings only**. Only generic/public work may use a hosted model, and only when the
-   router (Phase 4) is opt-in. The router **fails closed** (unknown → local). `LOCAL_ONLY=true`
-   forces everything local; it is the current default. **Embeddings are always local.**
+   local embeddings only**. The deterministic router (`app/agent/router.py`, Phase 4A) enforces this:
+   SENSITIVE → local always; hosted only for opt-in non-sensitive work; it **fails closed**
+   (unknown/misconfigured → local). `LOCAL_ONLY=true` forces everything local; it is the current
+   default. **Embeddings are always local.** **Scoped (P4A, with Stephanie's explicit say-so):** the
+   `consult_expert`/`/ask` de-identified hybrid may send *de-identified, deterministically-PII-scrubbed,
+   audited* derivatives to an opt-in free hosted model — **raw** personal data still never leaves. The
+   scrubber + fail-closed + audit log are the hard part; the local model's de-identification is
+   best-effort (measured). See `docs/04-constitution.md`'s scoped-modification note.
 2. **Never grant `gmail.send`.** Gmail scope is `readonly` + `gmail.compose` (drafts only).
    The agent drafts; Stephanie presses send. No send/post/share/delete tools are registered by
    default.

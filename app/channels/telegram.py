@@ -22,9 +22,9 @@ import asyncio
 import logging
 import threading
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.types import Command
-from sqlmodel import Session
+from sqlmodel import Session, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -36,12 +36,14 @@ from telegram.ext import (
     filters,
 )
 
+from app.agent import router, sanitize
 from app.agent.graph import build_agent
+from app.agent.router import Sensitivity
 from app.channels.base import Channel
 from app.config import settings
 from app.memory import store
 from app.memory.db import get_engine
-from app.memory.models import EmailSignal, SignalStatus
+from app.memory.models import EmailSignal, HostedConsult, SignalStatus
 from app.proactive import jobs, reminders
 
 log = logging.getLogger(__name__)
@@ -59,7 +61,12 @@ _TOOL_STATUS = {
     "add_reminder": "⏰ Setting that reminder…",
     "list_reminders": "📋 Checking your reminders…",
     "cancel_reminder": "🗑️ Cancelling that reminder…",
+    "consult_expert": "🧭 Consulting a bigger model…",
 }
+
+# Lightweight system prompt for the /ask generic path — no persona tool/safety block,
+# no memory, no history. Kept separate from the graph so /ask never touches sensitive data.
+_ASK_SYSTEM = "You are Mochi, Stephanie's helpful assistant. Answer the question clearly and concisely."
 
 
 def status_for_tool(name: str) -> str:
@@ -178,6 +185,70 @@ class TelegramChannel(Channel):
             )
         else:
             await ctx.bot.send_message(chat_id=chat_id, text="👍 Skipped — I won't set that one.")
+
+    async def _on_ask(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """The generic-knowledge path: a stateless question routed to the stronger model
+        when hosted is available (else local). It never touches memory or Google — so no
+        sensitive-origin data can enter — and only a scrubbed payload is ever sent hosted."""
+        if not self._authorized(update):
+            return
+        question = (update.message.text or "").partition(" ")[2].strip()
+        if not question:
+            await update.message.reply_text(
+                "Ask me a general question and I'll use the stronger model when it's available: "
+                "/ask <question>"
+            )
+            return
+        chat_id = update.effective_chat.id
+        await ctx.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
+        def run() -> str:
+            went_hosted = router.hosted_available()
+            payload, hits = sanitize.redact(question) if went_hosted else (question, 0)
+            answer = router.chat_model(Sensitivity.NON_SENSITIVE, temperature=0.5).invoke(
+                [SystemMessage(_ASK_SYSTEM), HumanMessage(payload)]
+            ).content
+            if went_hosted:  # only audit when something actually left the machine
+                with Session(get_engine()) as session:
+                    session.add(HostedConsult(sent_text=payload, answer=answer, n_redactions=hits))
+                    session.commit()
+            return answer
+
+        try:
+            answer = await asyncio.to_thread(run)
+        except Exception as exc:
+            await self._report_error(chat_id, ctx, exc)
+            return
+        await ctx.bot.send_message(chat_id=chat_id, text=(answer or "…")[:4000])
+        await asyncio.to_thread(self._log_one, chat_id, "user", update.message.text)
+        await asyncio.to_thread(self._log_one, chat_id, "assistant", answer or "")
+
+    async def _on_sent(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Show what has actually been sent to the external model (the audit log) — the
+        transparency half of the de-identified hybrid."""
+        if not self._authorized(update):
+            return
+
+        def fetch():
+            with Session(get_engine()) as session:
+                return list(
+                    session.exec(
+                        select(HostedConsult).order_by(HostedConsult.created_at.desc()).limit(10)
+                    )
+                )
+
+        rows = await asyncio.to_thread(fetch)
+        if not rows:
+            await update.message.reply_text(
+                "Nothing's been sent to the external model — everything has stayed local. 🔒"
+            )
+            return
+        lines = ["🌐 Recent de-identified questions sent externally:"]
+        for r in rows:
+            snippet = r.sent_text[:120] + ("…" if len(r.sent_text) > 120 else "")
+            extra = f"  ({r.n_redactions} redacted)" if r.n_redactions else ""
+            lines.append(f"• {r.created_at.astimezone():%b %-d %-I:%M %p} — {snippet}{extra}")
+        await update.message.reply_text("\n".join(lines))
 
     async def _on_pause(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._authorized(update):
@@ -375,6 +446,8 @@ class TelegramChannel(Channel):
         app.add_handler(CommandHandler("start", self._on_start))
         app.add_handler(CommandHandler("pause", self._on_pause))
         app.add_handler(CommandHandler("resume", self._on_resume))
+        app.add_handler(CommandHandler("ask", self._on_ask))
+        app.add_handler(CommandHandler("sent", self._on_sent))
         app.add_handler(CallbackQueryHandler(self._on_callback))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._on_message))
         # Proactive reminder-tick (JobQueue = APScheduler on the bot's own loop).

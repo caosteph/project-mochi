@@ -22,8 +22,24 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434/v1"
     local_model: str = "qwen2.5:7b"
 
-    # Privacy master switch. Keep true until the Phase 4 router exists.
+    # Privacy master switch. When true, EVERYTHING runs locally regardless of the
+    # hosted settings below — the router honors this first (fails closed to local).
     local_only: bool = True
+
+    # Opt-in hosted endpoint (Phase 4A) — a FREE, open-weight, OpenAI-compatible model
+    # (e.g. Groq/OpenRouter/Cerebras) used ONLY for non-sensitive work (the consult_expert
+    # tool + /ask). Off by default; even when configured, `local_only` overrides it.
+    hosted_enabled: bool = False
+    hosted_base_url: str | None = None
+    hosted_model: str | None = None
+    hosted_api_key: str | None = None
+
+    # De-identification backstop for anything sent to hosted. `redact_terms` is a
+    # comma-separated list of exact strings to always hard-redact (your name, email,
+    # aliases). Past `redact_max_hits` redactions, a query is treated as inherently
+    # personal → not delegated (answered locally). See app/agent/sanitize.py.
+    redact_terms: str = ""
+    redact_max_hits: int = 4
 
     # Embeddings — always local; deliberately no separate/hosted embedding URL setting.
     embedding_model: str = "nomic-embed-text"
