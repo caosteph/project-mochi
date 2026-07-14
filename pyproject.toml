@@ -17,6 +17,7 @@ dependencies = [
     "google-api-python-client>=2.198.0",
     "google-auth-oauthlib>=1.4.0",
     "dateparser>=1.4.1",
+    "telegramify-markdown>=1.2.0",
 ]
 
 [dependency-groups]

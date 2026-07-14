@@ -22,7 +22,8 @@ import asyncio
 import logging
 import threading
 
-from langchain_core.messages import HumanMessage, SystemMessage
+import telegramify_markdown
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.types import Command
 from sqlmodel import Session, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -73,9 +74,16 @@ def status_for_tool(name: str) -> str:
     return _TOOL_STATUS.get(name, "⏳ Working on it…")
 
 
+_TG_LIMIT = 4096  # Telegram's max message length
+
+
 class TelegramChannel(Channel):
     def __init__(self) -> None:
         self.agent = build_agent()
+        # message_id of each hosted /ask answer → the (de-identified) message history that
+        # produced it, so a swipe-reply to that answer can continue the expert thread.
+        # In-memory (resets on restart); capped so it can't grow unbounded.
+        self._ask_threads: dict[int, list] = {}
 
     def _authorized(self, update: Update) -> bool:
         chat = update.effective_chat
@@ -85,6 +93,36 @@ class TelegramChannel(Channel):
         # One durable conversation per chat; constant thread_id also keys the
         # paused state that Command(resume=...) resolves back to.
         return {"configurable": {"thread_id": str(chat_id)}}
+
+    async def _send_rich(self, bot, chat_id: int, text: str):
+        """Send model text rendered as Telegram MarkdownV2 (bold/bullets/code, and tables
+        as aligned monospace code blocks). Falls back to plain text on any parse error, and
+        chunks anything over Telegram's length limit — so a message never fails to deliver.
+        Returns the (last) sent Message so its id can anchor a reply-thread."""
+        text = text or "…"
+        try:
+            formatted = telegramify_markdown.markdownify(text, latex_escape=False)
+        except Exception:  # converter hiccup → treat as unformatted
+            formatted = None
+        if formatted and len(formatted) <= _TG_LIMIT:
+            try:
+                return await bot.send_message(chat_id=chat_id, text=formatted, parse_mode="MarkdownV2")
+            except Exception:  # malformed MarkdownV2 (BadRequest) → plain fallback
+                log.warning("MarkdownV2 send failed; falling back to plain text", exc_info=True)
+        last = None
+        for i in range(0, len(text), 4000):
+            last = await bot.send_message(chat_id=chat_id, text=text[i : i + 4000])
+        return last
+
+    def _remember_ask(self, message, history: list) -> None:
+        """Record a hosted answer's message_id → its conversation history, so replying to it
+        continues the thread. Cap the store (drop oldest) to bound memory."""
+        if message is None:
+            return
+        self._ask_threads[message.message_id] = history
+        if len(self._ask_threads) > 50:
+            for stale in list(self._ask_threads)[:-50]:
+                del self._ask_threads[stale]
 
     async def _on_start(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._authorized(update):
@@ -100,6 +138,15 @@ class TelegramChannel(Channel):
 
         text = update.message.text
         chat_id = update.effective_chat.id
+
+        # Swipe-reply to a prior /ask answer → continue that expert thread (hosted),
+        # instead of the normal local-agent path. Any other reply falls through to the
+        # graph, so replying to a normal (possibly personal) message never routes hosted.
+        replied_to = update.message.reply_to_message
+        if replied_to is not None and replied_to.message_id in self._ask_threads:
+            await self._on_ask_followup(chat_id, ctx, self._ask_threads[replied_to.message_id], text)
+            return
+
         interrupt_payload, reply, error = await self._run_with_status(
             chat_id, ctx, {"messages": [HumanMessage(text)]}, announce_thinking=True
         )
@@ -189,7 +236,9 @@ class TelegramChannel(Channel):
     async def _on_ask(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """The generic-knowledge path: a stateless question routed to the stronger model
         when hosted is available (else local). It never touches memory or Google — so no
-        sensitive-origin data can enter — and only a scrubbed payload is ever sent hosted."""
+        sensitive-origin data can enter — and only a scrubbed payload is ever sent hosted.
+        If sent as a reply to a message, that quoted text is added (scrubbed) as context.
+        The answer is stored so a swipe-reply to it continues the thread (see _on_message)."""
         if not self._authorized(update):
             return
         question = (update.message.text or "").partition(" ")[2].strip()
@@ -200,18 +249,53 @@ class TelegramChannel(Channel):
             )
             return
         chat_id = update.effective_chat.id
+        reply = update.message.reply_to_message
+        quoted = (reply.text or "") if reply is not None else ""
         await ctx.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
-        def run() -> str:
+        def run():
             went_hosted = router.hosted_available()
-            payload, hits = sanitize.redact(question) if went_hosted else (question, 0)
-            answer = router.chat_model(Sensitivity.NON_SENSITIVE, temperature=0.5).invoke(
-                [SystemMessage(_ASK_SYSTEM), HumanMessage(payload)]
-            ).content
+            raw = f"[Context — a message I'm replying to]\n{quoted}\n\n{question}" if quoted else question
+            payload, hits = sanitize.redact(raw) if went_hosted else (raw, 0)
+            messages = [SystemMessage(_ASK_SYSTEM), HumanMessage(payload)]
+            answer = router.chat_model(Sensitivity.NON_SENSITIVE, temperature=0.5).invoke(messages).content
             if went_hosted:  # only audit when something actually left the machine
                 with Session(get_engine()) as session:
                     session.add(HostedConsult(sent_text=payload, answer=answer, n_redactions=hits))
                     session.commit()
+            return answer, messages
+
+        try:
+            answer, messages = await asyncio.to_thread(run)
+        except Exception as exc:
+            await self._report_error(chat_id, ctx, exc)
+            return
+        sent = await self._send_rich(ctx.bot, chat_id, answer)
+        self._remember_ask(sent, messages + [AIMessage(content=answer or "")])
+        await asyncio.to_thread(self._log_one, chat_id, "user", update.message.text)
+        await asyncio.to_thread(self._log_one, chat_id, "assistant", answer or "")
+
+    async def _on_ask_followup(self, chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, history: list, new_text: str) -> None:
+        """Continue an /ask thread when Stephanie swipe-replies to a prior hosted answer.
+        The new turn is scrubbed and appended to the (already de-identified) history, kept on
+        the same NON_SENSITIVE/hosted path with the same fail-closed + audit guarantees."""
+        if not router.hosted_available():
+            await ctx.bot.send_message(
+                chat_id=chat_id, text="The expert model's off right now — ask me normally and I'll answer locally."
+            )
+            return
+        clean, hits = sanitize.redact(new_text)
+        if sanitize.is_too_personal(hits):
+            await ctx.bot.send_message(chat_id=chat_id, text="That follow-up's too personal to send externally — ask me directly.")
+            return
+        await ctx.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        messages = history + [HumanMessage(content=clean)]
+
+        def run():
+            answer = router.chat_model(Sensitivity.NON_SENSITIVE, temperature=0.5).invoke(messages).content
+            with Session(get_engine()) as session:
+                session.add(HostedConsult(sent_text=clean, answer=answer, n_redactions=hits))
+                session.commit()
             return answer
 
         try:
@@ -219,8 +303,9 @@ class TelegramChannel(Channel):
         except Exception as exc:
             await self._report_error(chat_id, ctx, exc)
             return
-        await ctx.bot.send_message(chat_id=chat_id, text=(answer or "…")[:4000])
-        await asyncio.to_thread(self._log_one, chat_id, "user", update.message.text)
+        sent = await self._send_rich(ctx.bot, chat_id, answer)
+        self._remember_ask(sent, messages + [AIMessage(content=answer or "")])
+        await asyncio.to_thread(self._log_one, chat_id, "user", new_text)
         await asyncio.to_thread(self._log_one, chat_id, "assistant", answer or "")
 
     async def _on_sent(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

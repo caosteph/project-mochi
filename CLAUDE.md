@@ -40,7 +40,10 @@ modification** of the "personal data → local only" hard rule (see `docs/04-con
 personal data never leaves (guaranteed); the local model's de-identification is best-effort (measured,
 not assumed) and backstopped + audited. Off by default (`LOCAL_ONLY=true`). Verified offline (15 tests)
 + against the real 7B (`scripts/verify_phase4a.py`: scrub 100%, de-id 5/5, local `/ask` round-trip).
-See `docs/09-phase4a-build.md`.
+See `docs/09-phase4a-build.md`. **4A.1 UX:** `/ask` answers render as Telegram MarkdownV2 (tables as
+aligned monospace; plain-text fallback), and follow-ups work by **swipe-replying** to an `/ask` answer
+(or `/ask` while replying) — the quoted context is scrubbed + audited like everything hosted, and a
+reply to a normal message still stays local.
 
 **Phase 3B — safe email reading (quarantined reader + general signal pipeline).** Mochi now reads
 untrusted email *bodies* — the project's most dangerous surface — via the **dual-LLM / quarantined

@@ -94,6 +94,7 @@ def test_ask_path_builds_generic_only_prompt(engine, monkeypatch):
     monkeypatch.setattr(router, "chat_model", lambda *a, **k: fake)
 
     chan = telegram.TelegramChannel.__new__(telegram.TelegramChannel)  # skip build_agent()
+    chan._ask_threads = {}
 
     async def _noop(*a, **k):
         pass
@@ -109,7 +110,7 @@ def test_ask_path_builds_generic_only_prompt(engine, monkeypatch):
 
     update = SimpleNamespace(
         effective_chat=SimpleNamespace(id=settings.telegram_chat_id),
-        message=SimpleNamespace(text="/ask what is 2+2", reply_text=_noop),
+        message=SimpleNamespace(text="/ask what is 2+2", reply_to_message=None, reply_text=_noop),
     )
     asyncio.run(chan._on_ask(update, SimpleNamespace(bot=Bot())))
 
