@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     working_buffer_max_tokens: int = 3000
     working_buffer_keep_recent: int = 6
 
+    # Post-turn fact-capture sweep (reliable memory) — a dedicated local extraction that
+    # backstops the flaky remember_fact tool. Runs in the background after each reply.
+    fact_sweep_enabled: bool = True
+    fact_dedup_similarity: float = 0.88  # skip storing a fact this similar to an existing one
+
     # Google (Phase 2). Paths only — OAuth scopes are a constant in
     # app/integrations/google_auth.py (least-privilege, not env-tunable). Both
     # files live under git-ignored data/ and never leave the machine.

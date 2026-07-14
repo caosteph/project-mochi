@@ -42,7 +42,7 @@ from app.agent.graph import build_agent
 from app.agent.router import Sensitivity
 from app.channels.base import Channel
 from app.config import settings
-from app.memory import store
+from app.memory import extract, store
 from app.memory.db import get_engine
 from app.memory.models import EmailSignal, HostedConsult, SignalStatus
 from app.proactive import jobs, reminders
@@ -154,6 +154,24 @@ class TelegramChannel(Channel):
             await self._report_error(chat_id, ctx, error)
             return
         await self._deliver(chat_id, ctx, interrupt_payload, reply, user_text=text)
+        if settings.fact_sweep_enabled:
+            await self._fact_sweep(text)
+
+    async def _fact_sweep(self, text: str) -> None:
+        """Background fact capture: after the reply is delivered, extract any durable facts
+        the user stated and store the new ones. Runs off the event loop (no user-facing
+        latency) and is fully error-isolated — a sweep failure never affects the turn. This
+        is the reliable backstop to the flaky remember_fact tool (see app/memory/extract.py)."""
+        def run():
+            with Session(get_engine()) as session:
+                return extract.sweep_and_store(session, text)
+
+        try:
+            stored = await asyncio.to_thread(run)
+            if stored:
+                log.info("fact sweep stored %d new fact(s)", len(stored))
+        except Exception:
+            log.exception("fact sweep failed; ignoring")
 
     async def _on_callback(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
