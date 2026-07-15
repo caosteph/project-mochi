@@ -160,6 +160,25 @@ def _maybe_mirror(
         log.warning("Calendar mirror failed for reminder %s (reminder still active)", reminder.id, exc_info=True)
 
 
+def _norm_text(text: str) -> str:
+    return " ".join((text or "").lower().split())
+
+
+def _find_duplicate(session: Session, text: str, due_at: datetime) -> Reminder | None:
+    """An existing PENDING reminder with the same text and a due time within the dedup
+    window — so a double tool-call in one turn, or the same ask twice, doesn't pile up
+    identical reminders (a real bug: 'Perplexity prep' was created 4×)."""
+    window = settings.reminder_dedup_window_minutes * 60
+    norm = _norm_text(text)
+    candidates = session.exec(
+        select(Reminder).where(Reminder.status == ReminderStatus.PENDING.value)
+    ).all()
+    for r in candidates:
+        if _norm_text(r.text) == norm and abs((r.due_at - due_at).total_seconds()) <= window:
+            return r
+    return None
+
+
 def create_reminder(
     session: Session,
     *,
@@ -172,8 +191,12 @@ def create_reminder(
 ) -> Reminder:
     """Create a user reminder from a natural-language time, and (if mirroring is on)
     a matching calendar event whose length is `duration_minutes` or a short default.
-    Raises ReminderParseError on an unparseable/past time (nothing is created)."""
+    Raises ReminderParseError on an unparseable/past time (nothing is created). A
+    near-duplicate of an existing pending reminder is returned instead of re-created."""
     due_at, rec = parse_when(when, recurrence, now=now)
+    duplicate = _find_duplicate(session, text, due_at)
+    if duplicate is not None:
+        return duplicate
     reminder = Reminder(
         text=text, due_at=due_at, recurrence=rec, kind=ReminderKind.GENERIC.value,
         status=ReminderStatus.PENDING.value,

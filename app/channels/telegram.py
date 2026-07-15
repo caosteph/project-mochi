@@ -553,9 +553,22 @@ class TelegramChannel(Channel):
             stop.set()
             await typing
 
-        # Make sure the full, authoritative reply is what's displayed.
+        # Make sure the full, authoritative reply is displayed, then upgrade it in place to
+        # rendered Markdown (bold/bullets/code, tables→monospace). Streaming stays plain
+        # (partial Markdown is malformed); only this final edit is formatted, and it falls
+        # back silently to the plain text already shown if MarkdownV2 won't parse.
         if interrupt_payload is None and error is None:
-            await show_reply(reply or reply_buf or "Done.")
+            final_text = (reply or reply_buf or "Done.").strip()
+            await show_reply(final_text)
+            if reply_msg_id[0] is not None and final_text:
+                try:
+                    formatted = telegramify_markdown.markdownify(final_text, latex_escape=False)
+                    if 0 < len(formatted) <= _TG_LIMIT and formatted.strip() != final_text:
+                        await ctx.bot.edit_message_text(
+                            formatted, chat_id=chat_id, message_id=reply_msg_id[0], parse_mode="MarkdownV2"
+                        )
+                except Exception:
+                    pass  # plain reply already shown
 
         return interrupt_payload, reply, error
 

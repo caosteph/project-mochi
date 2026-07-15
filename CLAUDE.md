@@ -23,6 +23,28 @@ The full plan, learning docs, and per-phase build guides live in this repo's **`
 - `docs/09-phase4a-build.md` — sensitivity router + de-identified hosted delegation.
 - `docs/10-phase4b-build.md` — the builder: sandboxed web-app + document generation.
 
+## How to work here (Stephanie's standing guidance)
+
+Explicit, always-on expectations for any AI session in this repo — read this each session and hold to it:
+- **Validate every claim — never assert what you haven't checked.** Run it, measure it, show the output.
+  "It works" / "it's done" requires proof: a passing test, a green verify run, a real round-trip.
+- **Test everything.** Add/extend `tests/` + the phase `scripts/verify_*.py`, driving the *real* code and
+  model (not just plumbing). **After ANY persona/tool/graph change, re-run the tool-firing verifies
+  (`verify_phase1/2/3` + `verify_dynamic_tools`) BEFORE claiming success — they regress silently.** Never
+  report a model metric from a single run (re-run to rule out variance; the 7B is stochastic).
+  `scripts/verify_all.sh` runs the whole regression **sequentially** (Ollama serializes — parallel runs
+  give misleading results).
+- **Definition of done:** offline `pytest` + relevant `verify_*` green, no regressions, docs/CLAUDE.md
+  updated — *then* it's done, not before.
+- **Problem-solve through obstacles.** When something blocks (e.g. the 7B tool-count wall), diagnose the
+  root cause and engineer a real fix — don't just route around it or declare it a blocker.
+- **Research genuine knowledge gaps**, and prefer an on-machine empirical check over an assumption.
+- **Plan first for non-trivial work**; surface design-influencing questions; recommend, don't option-dump.
+  Ask sparingly (she gets click-fatigue) — proceed with a sensible default when you can.
+
+(Prompt-tier guidance — a strong default the model usually follows, not a hard guarantee. When something
+*must* hold, it belongs in code, per the two-tier model below.)
+
 ## Current status
 
 **Phase 4B — the builder (step 1 shipped).** Mochi can now **build things**: `app/builder/` scaffolds/

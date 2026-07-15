@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     reminder_tick_interval_seconds: int = 60
     reminder_lead_days: int = 3            # nudge this many days before a return window closes
     reminder_snooze_days: int = 1
+    reminder_dedup_window_minutes: int = 60  # skip creating a same-text reminder within this of an existing one
     quiet_hours_start: int = 21            # no proactive nudges from 9pm…
     quiet_hours_end: int = 8               # …until 8am (local wall-clock)
     calendar_mirror_enabled: bool = True   # mirror timed reminders into Google Calendar events

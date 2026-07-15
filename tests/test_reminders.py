@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import text
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.memory.db import init_db
 from app.memory.models import Purchase, Reminder, ReminderStatus
@@ -235,3 +235,16 @@ def test_mirror_reminder_duration(engine):
         start = datetime.fromisoformat(kwargs["body"]["start"]["dateTime"])
         end = datetime.fromisoformat(kwargs["body"]["end"]["dateTime"])
         assert (end - start) == timedelta(minutes=15)  # settings.reminder_event_default_minutes
+
+
+# --- dedup: same-text near-duplicate reminders aren't re-created ------------
+
+def test_create_reminder_dedups_near_duplicates(engine):
+    now = datetime(2026, 7, 15, 12, tzinfo=UTC)
+    with Session(engine) as s:
+        r1 = reminders.create_reminder(s, text="Perplexity prep", when="tomorrow at 8am", now=now)
+        r2 = reminders.create_reminder(s, text="perplexity prep", when="tomorrow at 8am", now=now)  # dup (case-insensitive)
+        r3 = reminders.create_reminder(s, text="call mom", when="tomorrow at 8am", now=now)  # different text
+        assert r1.id == r2.id  # deduped — returns the existing one
+        assert r3.id != r1.id
+        assert len(s.exec(select(Reminder)).all()) == 2  # only 2 rows, not 3

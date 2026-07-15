@@ -129,3 +129,21 @@ def test_html_to_text_handles_malformed_and_nested():
     out = email_signals.google_gmail._html_to_text(html)
     assert "Hi" in out and "there" in out and "more" in out and "tail" in out
     assert "evil" not in out and "<" not in out
+
+
+# --- calendar date resolution (A1: code-resolved, not model-computed) -----------
+
+def test_calendar_resolve_when_uses_real_dates():
+    from datetime import datetime
+    from tzlocal import get_localzone
+    from app.agent.tools.google_tools import resolve_when
+    now = datetime(2026, 7, 15, 14, 0, tzinfo=get_localzone())  # Wed Jul 15
+
+    def label(w):
+        return resolve_when(w, now=now)[2]
+
+    assert "Jul 15" in label("today")
+    assert "Jul 16" in label("tomorrow")
+    assert "Jul 17" in label("next Friday")  # the dateparser "next X" trap → must NOT be today
+    s, e, _ = resolve_when("today", now=now)
+    assert s[:10] == "2026-07-15" and e[:10] == "2026-07-15"  # a single-day window

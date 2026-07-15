@@ -6,11 +6,72 @@ Google and so passes through the human-in-the-loop approval gate before anything
 written. There is deliberately no send tool anywhere.
 """
 
+from datetime import datetime, timedelta
+
+import dateparser
 from langchain_core.tools import tool
+from tzlocal import get_localzone
 
 from app.agent import rate_limit
 from app.agent.confirm import require_approval
 from app.integrations import google_calendar, google_gmail
+
+
+def _day_bounds(d, tz):
+    start = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=tz)
+    return start, start + timedelta(days=1) - timedelta(seconds=1)
+
+
+def resolve_when(when: str, *, now: datetime | None = None) -> tuple[str, str, str]:
+    """Turn a natural-language window into (start_iso, end_iso, human_label), computed in
+    CODE against the real current date — because the 7B is unreliable at date math (which
+    caused 'that was yesterday'). Returns a labeled range so the day is unambiguous."""
+    tz = get_localzone()
+    now = now or datetime.now(tz)
+    w = (when or "today").strip().lower()
+    if w in ("today", "", "now", "day"):
+        s, e = _day_bounds(now.date(), tz)
+        label = f"Today ({s:%a %b %-d})"
+    elif w == "tomorrow":
+        d = (now + timedelta(days=1)).date()
+        s, e = _day_bounds(d, tz)
+        label = f"Tomorrow ({s:%a %b %-d})"
+    elif w == "next week":
+        mon = (now + timedelta(days=7 - now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        s, e = mon, mon + timedelta(days=7) - timedelta(seconds=1)
+        label = f"Next week ({s:%b %-d}–{e:%b %-d})"
+    elif w in ("this week", "week", "upcoming", "next 7 days", "7 days", "the week"):
+        s, e = now, now + timedelta(days=7)
+        label = f"Next 7 days ({s:%b %-d}–{e:%b %-d})"
+    else:  # a specific day phrase ("July 20", "next Friday")
+        # "next Friday" trips dateparser (returns today); strip the "next " and let the
+        # future-preference pick the coming one — same trick as the reminder parser.
+        phrase = when[5:] if w.startswith("next ") else when
+        parsed = dateparser.parse(
+            phrase, settings={"RELATIVE_BASE": now, "PREFER_DATES_FROM": "future", "RETURN_AS_TIMEZONE_AWARE": True}
+        )
+        if parsed is None:
+            s, e = _day_bounds(now.date(), tz)
+            label = f"Today ({s:%a %b %-d})"
+        else:
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=tz)
+            s, e = _day_bounds(parsed.date(), tz)
+            label = f"{s:%a %b %-d}"
+    return s.isoformat(), e.isoformat(), label
+
+
+def _fmt_event(e: dict) -> str:
+    start = e.get("start") or ""
+    loc = f" @ {e['location']}" if e.get("location") else ""
+    try:
+        if "T" in start:  # timed event
+            when = f"{datetime.fromisoformat(start):%a %b %-d, %-I:%M %p}"
+        else:  # all-day
+            when = f"{datetime.fromisoformat(start):%a %b %-d} (all day)"
+    except ValueError:
+        when = start
+    return f"- {when}: {e.get('summary', '(no title)')}{loc}"
 
 
 def frame_untrusted(source: str, body: str) -> str:
@@ -27,19 +88,17 @@ def frame_untrusted(source: str, body: str) -> str:
 
 
 @tool
-def calendar_list_events(start_iso: str | None = None, end_iso: str | None = None) -> str:
-    """List upcoming Google Calendar events. start_iso/end_iso are optional RFC3339
-    timestamps (e.g. 2026-07-12T00:00:00Z); default is the next 7 days. Use the
-    current date/time provided in your system context to build ranges for 'today',
-    'tomorrow', etc."""
+def calendar_list_events(when: str = "today") -> str:
+    """List Google Calendar events. Pass `when` as a plain phrase — "today" (default),
+    "tomorrow", "this week", "next week", or a specific day like "July 20" or "next Friday".
+    I resolve the exact dates for you from the real current date — you do NOT compute
+    timestamps yourself. Use this for "what's on my calendar", "am I free tomorrow", etc."""
+    start_iso, end_iso, label = resolve_when(when)
     events = google_calendar.list_events(start_iso, end_iso)
     if not events:
-        return "No events found in that window."
-    lines = []
-    for e in events:
-        loc = f" @ {e['location']}" if e.get("location") else ""
-        lines.append(f"- {e['start']}: {e['summary']}{loc}")
-    return frame_untrusted("calendar", "\n".join(lines))
+        return f"📅 {label}: nothing on your calendar."
+    body = frame_untrusted("calendar", "\n".join(_fmt_event(e) for e in events))
+    return f"📅 {label}:\n{body}"
 
 
 @tool
