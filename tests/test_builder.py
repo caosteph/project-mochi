@@ -119,9 +119,10 @@ def test_build_web_app_framework_scaffolds_without_serving(tmp_path, monkeypatch
 
 # --- make_document queues a file for delivery ----------------------------------
 
-def test_make_document_creates_and_queues_file():
+def test_make_document_creates_and_queues_file(monkeypatch):
+    monkeypatch.setattr(builder_tools, "_write_document", lambda desc: "# Hi\n\n- x")  # no model call
     builder_tools.drain_artifacts()  # clear
-    out = builder_tools.make_document.invoke({"title": "My Plan", "content": "# Hi\n\n- x", "format": "pdf"})
+    out = builder_tools.make_document.invoke({"description": "My Plan", "format": "pdf"})
     assert "PDF" in out
     queued = builder_tools.drain_artifacts()
     assert len(queued) == 1 and queued[0].endswith(".pdf")
@@ -176,9 +177,8 @@ def test_on_build_command_replies_with_link(monkeypatch):
 
 
 def test_on_doc_command_generates_locally_and_sends_file(monkeypatch):
-    # /doc must use the LOCAL model (personal content stays local) and send a file.
-    fake_model = SimpleNamespace(invoke=lambda msgs: SimpleNamespace(content="# Plan\n\n- do x\n- do y"))
-    monkeypatch.setattr(telegram.router, "chat_model", lambda *a, **k: fake_model)
+    # /doc generates content (mocked here) and sends a file.
+    monkeypatch.setattr(builder_tools, "_write_document", lambda desc: "# Plan\n\n- do x\n- do y")
     chan = _chan()
     monkeypatch.setattr(chan, "_log_one", lambda *a: None)
     bot = _Bot()

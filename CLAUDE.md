@@ -30,12 +30,13 @@ writes web apps and generates **PDFs/Word docs**, runs them in a **sandbox** (`S
 scrubbed env — no secrets in the child — cwd-jailed to `workspace/`, timeout, best-effort `sandbox-exec`
 deny of `data/`+`.env`; a `DockerSandbox` is a later drop-in), and **serves static sites on the LAN** so
 Stephanie opens them on her phone. Heavy code-gen routes to the hosted **gpt-oss-120b** (via the 4A
-router, scrubbed + audited). **Exposed via `/build` + `/doc` commands, NOT agent tools** — a measured
-finding: binding the builder made the tool set 15, which **collapsed the 7B's tool-calling** (11 fire
-reliably, 13–15 → 0; `add_reminder` and `build_web_app` both broke). Commands (like `/ask`) need no
-tool-selection, so the agent stays at 11 tools. Conversational access awaits **dynamic per-turn tool
-binding** (deferred). `/doc` writes on the *local* model (personal content stays local) → PDF via
-`send_document`. **Also shipped this cycle — 4A.2 reliable fact capture:** a post-turn *local* extraction
+router, scrubbed + audited). **Works conversationally** ("build me a bakery page") — solved a measured
+**tool-count wall** (binding all ~15 tools collapses the 7B; 11 fire, 13–15 → 0) with **dynamic per-turn
+tool binding** (`app/agent/tool_select.py`): each turn binds only a small relevant subset (memory core +
+keyword + embedding-nearest, ≤10) selected from the message; `ToolNode` keeps all tools for execution.
+End-to-end: `build_web_app` 3/3, `make_document` 2/2, `add_reminder` 3/3, `create_draft` 3/3 — the
+builder works AND all other tools are preserved/improved. `make_document(description)` generates its own
+content on the *local* model (personal stays local). `/build` + `/doc` remain as explicit shortcuts. **Also shipped this cycle — 4A.2 reliable fact capture:** a post-turn *local* extraction
 sweep (`app/memory/extract.py`) that captures facts 5/5 where the flaky `remember_fact` tool got 1–2/5,
 deduped + stored in the background. Step 1 verified offline (`tests/test_builder.py`) + real
 (`scripts/verify_phase4b.py` 7/7: sandbox runs node/python, scrubs secrets, `sandbox-exec` denies `.env`,

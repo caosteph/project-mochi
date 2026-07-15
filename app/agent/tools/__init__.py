@@ -1,11 +1,11 @@
+from app.agent.tools.builder_tools import BUILDER_TOOLS
 from app.agent.tools.expert_tools import EXPERT_TOOLS
 from app.agent.tools.google_tools import GOOGLE_TOOLS
 from app.agent.tools.memory_tools import MEMORY_TOOLS
 from app.agent.tools.reminder_tools import REMINDER_TOOLS
 
-# NOTE: builder tools (app/agent/tools/builder_tools.py) are deliberately NOT bound into
-# the agent's tool set. Measured on the local 7B: 11 tools fire reliably, but 13–15 collapse
-# tool-calling entirely (add_reminder AND build_web_app dropped to 0). Until dynamic per-turn
-# tool binding exists, the builder is exposed via explicit /build and /doc commands instead
-# (like /ask), which need no tool-selection. See docs/10-phase4b-build.md.
-ALL_TOOLS = [*MEMORY_TOOLS, *GOOGLE_TOOLS, *REMINDER_TOOLS, *EXPERT_TOOLS]
+# ALL_TOOLS is the full pool (ToolNode can execute any of them). The 7B can't be *bound* with
+# all ~15 at once (measured: it collapses past ~11), so the graph binds only a small relevant
+# subset per turn — see app/agent/tool_select.py. That keeps the builder conversational without
+# breaking the core tools. /build and /doc remain as explicit shortcuts.
+ALL_TOOLS = [*MEMORY_TOOLS, *GOOGLE_TOOLS, *REMINDER_TOOLS, *EXPERT_TOOLS, *BUILDER_TOOLS]

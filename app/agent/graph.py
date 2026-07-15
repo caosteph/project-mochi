@@ -16,7 +16,7 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from psycopg import Connection
 
-from app.agent import router
+from app.agent import router, tool_select
 from app.agent.persona import build_system_prompt
 from app.agent.router import Sensitivity
 from app.agent.tools import ALL_TOOLS
@@ -40,13 +40,12 @@ class AgentState(MessagesState):
 
 
 # The main agent is the SENSITIVE path (it has memory + Google + persona) → the router
-# always resolves this to the LOCAL model. Going through the router (rather than building
-# ChatOpenAI directly) means "the main agent stays local" is enforced in one auditable
-# place, even if LOCAL_ONLY/hosted config later change. Temperature 0.4 is lower than
-# Phase 0's 0.7: tool-call adherence on a 7B degrades at higher temperature, and a broken
-# "I'll remember that" promise is worse than slightly less playful phrasing (see
-# docs/05-phase1-build.md's tool-invocation-reliability gotcha).
-_llm = router.chat_model(Sensitivity.SENSITIVE, temperature=0.4, tools=ALL_TOOLS)
+# always resolves this to the LOCAL model. Tools are bound PER TURN, not here: the local
+# 7B collapses when handed all ~15 tools at once (measured), so _agent_node selects a small
+# relevant subset from the message and binds only those (see app/agent/tool_select.py).
+# Temperature 0.4 is lower than Phase 0's 0.7: tool-call adherence on a 7B degrades at higher
+# temperature (see docs/05-phase1-build.md's tool-invocation-reliability gotcha).
+_base_llm = router.chat_model(Sensitivity.SENSITIVE, temperature=0.4)
 
 # Plain, tools-free local model for summarization, so the summarizer never emits a tool call.
 _summarizer_llm = router.chat_model(Sensitivity.SENSITIVE, temperature=0.3)
@@ -68,7 +67,15 @@ def _agent_node(state: AgentState) -> dict:
     now = datetime.now().astimezone()
     time_note = SystemMessage(f"(For reference, the current date/time is {now:%A, %Y-%m-%d %H:%M %Z}.)")
     messages = [SystemMessage(core), *state["messages"], time_note]
-    return {"messages": [_llm.invoke(messages)]}
+
+    # Bind only a small, relevant subset of tools for this turn (the 7B can't handle all of
+    # them at once). Select from the most recent user message — stable across the tool-loop.
+    last_human = next(
+        (m.content for m in reversed(state["messages"]) if isinstance(m, HumanMessage)), ""
+    )
+    subset = tool_select.select_tools(last_human if isinstance(last_human, str) else "", ALL_TOOLS)
+    llm = _base_llm.bind_tools(subset) if subset else _base_llm
+    return {"messages": [llm.invoke(messages)]}
 
 
 def _estimate_tokens(messages) -> int:

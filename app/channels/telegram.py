@@ -64,6 +64,10 @@ _TOOL_STATUS = {
     "list_reminders": "📋 Checking your reminders…",
     "cancel_reminder": "🗑️ Cancelling that reminder…",
     "consult_expert": "🧭 Consulting a bigger model…",
+    "build_web_app": "🛠️ Building that…",
+    "make_document": "📄 Putting that document together…",
+    "serve_project": "🌐 Serving that up…",
+    "list_projects": "📁 Checking what I've built…",
 }
 
 # Lightweight system prompt for the /ask generic path — no persona tool/safety block,
@@ -394,14 +398,7 @@ class TelegramChannel(Channel):
         await ctx.bot.send_message(chat_id=chat_id, text="📄 Writing that up…")
 
         def run() -> list[str]:
-            content = router.chat_model(Sensitivity.SENSITIVE, temperature=0.4).invoke([
-                SystemMessage(
-                    "Write a clear, well-structured document for the request. Use Markdown: '# Title', "
-                    "'## Section' headings, and '- ' bullets. Output only the document."
-                ),
-                HumanMessage(description),
-            ]).content
-            make_document.invoke({"title": description[:60], "content": content, "format": fmt})
+            make_document.invoke({"description": description, "format": fmt})  # generates content internally
             return builder_tools.drain_artifacts()
 
         try:

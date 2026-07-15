@@ -7,9 +7,11 @@ import logging
 import threading
 from datetime import datetime
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 
-from app.agent import rate_limit
+from app.agent import rate_limit, router
+from app.agent.router import Sensitivity
 from app.builder import codegen, docs, serve, workspace
 
 log = logging.getLogger(__name__)
@@ -58,23 +60,41 @@ def build_web_app(description: str, framework: bool = False) -> str:
     return f"Done! Your site is live at {url} — open it on your phone (same wifi). Ask me to make it public to view anywhere."
 
 
+_DOC_SYSTEM = SystemMessage(
+    "Write a clear, well-structured document for the request. Use Markdown: a '# Title' line, "
+    "'## Section' headings, and '- ' bullets. Output ONLY the document."
+)
+
+
+def _write_document(description: str) -> str:
+    """Generate document content on the LOCAL model (personal content stays local)."""
+    return router.chat_model(Sensitivity.SENSITIVE, temperature=0.4).invoke(
+        [_DOC_SYSTEM, HumanMessage(description)]
+    ).content
+
+
 @tool
-def make_document(title: str, content: str, format: str = "pdf") -> str:
-    """Render a document (PDF or Word .docx) from text YOU write and send it to Stephanie.
-    `title` is the document title; `content` is the full body as simple Markdown (use
-    #/##/### for headings and - for bullets). `format` is "pdf" or "docx". Compose the
-    complete content yourself before calling this — for a rich/expert write-up you can
-    consult the expert first, then pass its (adapted) result here."""
+def make_document(description: str, format: str = "pdf") -> str:
+    """Create a document (PDF, or Word .docx if she asks) about a topic and send it to
+    Stephanie. `description` is what to write — e.g. "a one-page plan for my week", "a summary
+    of the French Revolution". `format` is "pdf" or "docx". Just call this with the topic; you
+    do NOT write the content yourself — it's generated and sent to her as a file."""
     if not rate_limit.allow("make_document"):
         return "I've hit my hourly document limit — try again in a bit."
     fmt = "docx" if str(format).lower().startswith("doc") else "pdf"
+    try:
+        content = _write_document(description)
+    except Exception as exc:
+        log.exception("doc content generation failed")
+        return f"I couldn't write that document — {exc}."
+    title = description[:60]
     workspace.WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
     fname = f"{workspace._slug(title)}-{datetime.now():%Y%m%d-%H%M%S}.{fmt}"
     path = workspace.WORKSPACE_ROOT / fname
     try:
         (docs.generate_docx if fmt == "docx" else docs.generate_pdf)(title, content, path)
     except Exception as exc:
-        log.exception("doc generation failed")
+        log.exception("doc rendering failed")
         return f"I couldn't build that document — {exc}."
     with _lock:
         _pending_docs.append(str(path))

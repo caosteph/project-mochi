@@ -34,22 +34,23 @@ code-gen).
   model with `json_schema` structured output (scrubbed + audited like `consult_expert`; falls back to
   local when hosting is off). `generator` injectable for offline tests.
 
-## Exposure: commands, not agent tools (a measured finding)
-The builder was originally built as agent tools (`build_web_app`, `make_document`, …). But binding them
-into the agent's set **broke tool-calling on the local 7B**: measured, **11 tools fire reliably, but
-13–15 collapse entirely** — `add_reminder` *and* `build_web_app` both dropped to 0/3. This is a hard
-tool-count wall on the 7B (tool-schema bloat degrades selection). So the builder is exposed via explicit
-**commands** instead (like `/ask`), which need no tool-selection:
-- **`/build <description>`** — `build_web_app.invoke(...)`: generate → write → serve (static) → reply
-  with the LAN URL.
-- **`/doc <description>`** — writes the document on the **local** model (personal content stays local),
-  renders a PDF (or `.docx` if "word"/"docx" is mentioned), and sends it via `bot.send_document`.
+## The tool-count wall → dynamic per-turn tool binding (measured + solved)
+Binding the builder made the agent's set 15 tools, which **broke tool-calling on the local 7B**:
+measured, **11 tools fire reliably but 13–15 collapse** — `add_reminder` *and* `build_web_app` both
+dropped to ~0. Rather than route around it with commands, we **solved** it with **dynamic per-turn tool
+binding** (`app/agent/tool_select.py`): each turn, select a small relevant subset from the user's
+message (always-on memory core + keyword-matched + embedding-nearest tools, capped ≤10) and bind only
+those. `ToolNode` still holds all tools for execution. Result: **the builder works conversationally**
+("build me a bakery page" → `build_web_app` fires 3/3) **and every other tool is preserved or improved**
+(`add_reminder` 3/3, `create_draft` 3/3). Two supporting fixes made the builder tools fire well in a
+small subset: a **forceful persona builder section** (call the tool immediately, don't ask for details)
+and making **`make_document(description, format)` generate its own content** (trivial args → fires like
+`add_reminder`, and personal content stays on the local model). `/build` and `/doc` remain as explicit
+shortcuts. Validated end-to-end in `scripts/verify_dynamic_tools.py` (4/4).
 
-The `build_web_app`/`make_document`/`serve_project`/`list_projects` `@tool`s still exist (invoked by the
-commands + covered by tests) — they're just **not in `ALL_TOOLS`**. Conversational access ("Mochi, build
-me a page") awaits **dynamic per-turn tool binding** (bind a small relevant subset per message) — the
-proper fix for the growing tool count, deferred to its own effort. For now the persona points the user
-to `/build` and `/doc`.
+**Commands (still available as shortcuts):**
+- **`/build <description>`** — `build_web_app.invoke(...)` → LAN URL.
+- **`/doc <description>`** — `make_document.invoke(...)` (local content gen) → PDF via `send_document`.
 
 ## Config (`app/config.py`, `.env.example`)
 `builder_port_base=8100`, `builder_sandbox_timeout=120`, `builder_npm_timeout=300`, `builder_fs_deny=
