@@ -248,3 +248,17 @@ def test_create_reminder_dedups_near_duplicates(engine):
         assert r1.id == r2.id  # deduped — returns the existing one
         assert r3.id != r1.id
         assert len(s.exec(select(Reminder)).all()) == 2  # only 2 rows, not 3
+
+
+def test_dedupe_pending_reminders_clears_backlog(engine):
+    due = datetime(2026, 7, 15, 14, 0, tzinfo=UTC)
+    yoga = datetime(2026, 7, 15, 19, 0, tzinfo=UTC)
+    with Session(engine) as s:
+        for _ in range(4):
+            s.add(Reminder(text="Submit health insurance claims", due_at=due, status=ReminderStatus.PENDING.value))
+        s.add(Reminder(text="yoga class", due_at=yoga, status=ReminderStatus.PENDING.value))  # distinct
+        s.commit()
+        cancelled = reminders.dedupe_pending_reminders(s)
+        assert len(cancelled) == 3  # 4 identical → keep 1, cancel 3
+        pending = s.exec(select(Reminder).where(Reminder.status == ReminderStatus.PENDING.value)).all()
+        assert len(pending) == 2  # 1 claims + 1 yoga survive

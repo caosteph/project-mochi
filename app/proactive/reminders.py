@@ -165,18 +165,70 @@ def _norm_text(text: str) -> str:
 
 
 def _find_duplicate(session: Session, text: str, due_at: datetime) -> Reminder | None:
-    """An existing PENDING reminder with the same text and a due time within the dedup
-    window — so a double tool-call in one turn, or the same ask twice, doesn't pile up
-    identical reminders (a real bug: 'Perplexity prep' was created 4×)."""
+    """An existing PENDING reminder for the same task in the same due-window — so repeated
+    asks / double tool-calls don't pile up (a real bug: 'Perplexity prep' ×4, 'yoga class'
+    in six wordings). Matches on identical text OR a shared distinguishing content word, so
+    "yoga class"/"go to yoga class" collapse but "submit the form" stays separate from
+    "submit health insurance claims"."""
     window = settings.reminder_dedup_window_minutes * 60
     norm = _norm_text(text)
+    words = _content_words(text)
     candidates = session.exec(
         select(Reminder).where(Reminder.status == ReminderStatus.PENDING.value)
     ).all()
     for r in candidates:
-        if _norm_text(r.text) == norm and abs((r.due_at - due_at).total_seconds()) <= window:
+        if abs((r.due_at - due_at).total_seconds()) <= window and (
+            _norm_text(r.text) == norm or bool(_content_words(r.text) & words)
+        ):
             return r
     return None
+
+
+# Words that carry no distinguishing meaning for a reminder — ignored when deciding
+# whether two differently-worded reminders are really the same task.
+_STOP_WORDS = {
+    "the", "a", "an", "to", "my", "for", "of", "on", "at", "and", "in", "do", "go",
+    "submit", "prep", "prepare", "respond", "attend", "get", "take", "reminder", "remind",
+    "call", "please", "me", "up", "with", "about",
+}
+
+
+def _content_words(text: str) -> set[str]:
+    return {w for w in _norm_text(text).split() if len(w) > 2 and w not in _STOP_WORDS}
+
+
+def dedupe_pending_reminders(session: Session, *, fuzzy: bool = True, dry_run: bool = False) -> list[int]:
+    """One-time cleanup: cancel already-accumulated duplicate PENDING reminders, keeping
+    the earliest of each group. Two reminders in the same due-window are duplicates if
+    their text is identical OR (fuzzy) they share a distinguishing content word — so "yoga
+    class"/"go to yoga class"/"attend yoga class" collapse, but "submit the form" stays
+    separate from "submit health insurance claims". The A2 create-time dedup stops NEW
+    dupes; this clears the pre-existing backlog. Reversible (status→cancelled). Returns the
+    cancelled ids."""
+    window = settings.reminder_dedup_window_minutes * 60
+    pending = session.exec(
+        select(Reminder).where(Reminder.status == ReminderStatus.PENDING.value).order_by(Reminder.id)
+    ).all()
+    kept: list[tuple[str, set[str], datetime]] = []
+    cancelled: list[int] = []
+    for r in pending:
+        norm = _norm_text(r.text)
+        words = _content_words(r.text)
+        is_dup = any(
+            abs((kd - r.due_at).total_seconds()) <= window
+            and (kn == norm or (fuzzy and bool(kw & words)))
+            for kn, kw, kd in kept
+        )
+        if is_dup:
+            cancelled.append(r.id)
+            if not dry_run:
+                r.status = ReminderStatus.CANCELLED.value
+                session.add(r)
+        else:
+            kept.append((norm, words, r.due_at))
+    if not dry_run:
+        session.commit()
+    return cancelled
 
 
 def create_reminder(
