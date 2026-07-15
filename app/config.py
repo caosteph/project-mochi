@@ -88,6 +88,13 @@ class Settings(BaseSettings):
     # runaway/injected-loop guard, per action type, per rolling hour.
     max_actions_per_hour: int = 30
 
+    # Builder (Phase 4B) — Mochi scaffolds/serves web apps + generates docs in a sandbox.
+    builder_port_base: int = 8100        # first port to try when serving built apps
+    builder_sandbox_timeout: int = 120   # seconds cap on a sandboxed command
+    builder_npm_timeout: int = 300       # npm install/build can be slow
+    builder_fs_deny: bool = True         # best-effort sandbox-exec deny of data//.env reads
+    cloudflared_path: str = "cloudflared"
+
     # Email signal ingestion (Phase 3B) — the quarantined reader scans recent mail,
     # extracts a typed actionable signal, and proactively asks before creating a reminder.
     signal_scanning_enabled: bool = True        # kill-switch for reading email bodies at all

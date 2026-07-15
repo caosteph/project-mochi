@@ -21,8 +21,26 @@ The full plan, learning docs, and per-phase build guides live in this repo's **`
 - `docs/07-phase3a-build.md` — proactive reminder engine: scheduler, add/list/cancel, calendar mirror.
 - `docs/08-phase3b-build.md` — quarantined reader (dual-LLM) + general email-signal pipeline.
 - `docs/09-phase4a-build.md` — sensitivity router + de-identified hosted delegation.
+- `docs/10-phase4b-build.md` — the builder: sandboxed web-app + document generation.
 
 ## Current status
+
+**Phase 4B — the builder (step 1 shipped).** Mochi can now **build things**: `app/builder/` scaffolds/
+writes web apps and generates **PDFs/Word docs**, runs them in a **sandbox** (`SubprocessSandbox`:
+scrubbed env — no secrets in the child — cwd-jailed to `workspace/`, timeout, best-effort `sandbox-exec`
+deny of `data/`+`.env`; a `DockerSandbox` is a later drop-in), and **serves static sites on the LAN** so
+Stephanie opens them on her phone. Heavy code-gen routes to the hosted **gpt-oss-120b** (via the 4A
+router, scrubbed + audited). **Exposed via `/build` + `/doc` commands, NOT agent tools** — a measured
+finding: binding the builder made the tool set 15, which **collapsed the 7B's tool-calling** (11 fire
+reliably, 13–15 → 0; `add_reminder` and `build_web_app` both broke). Commands (like `/ask`) need no
+tool-selection, so the agent stays at 11 tools. Conversational access awaits **dynamic per-turn tool
+binding** (deferred). `/doc` writes on the *local* model (personal content stays local) → PDF via
+`send_document`. **Also shipped this cycle — 4A.2 reliable fact capture:** a post-turn *local* extraction
+sweep (`app/memory/extract.py`) that captures facts 5/5 where the flaky `remember_fact` tool got 1–2/5,
+deduped + stored in the background. Step 1 verified offline (`tests/test_builder.py`) + real
+(`scripts/verify_phase4b.py` 7/7: sandbox runs node/python, scrubs secrets, `sandbox-exec` denies `.env`,
+real HTTP 200, real PDF, real Groq code-gen). Steps 2 (React/Vite dev serving) + 3 (cloudflared tunnel +
+code-gen quality/retry) are next. See `docs/10-phase4b-build.md`.
 
 **Phase 4A — sensitivity router + de-identified hosted delegation.** The project's #1 privacy
 principle is now real code. `app/agent/router.py` deterministically picks local vs hosted **by data

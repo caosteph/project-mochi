@@ -20,6 +20,7 @@ in place as a breadcrumb trail.
 
 import asyncio
 import logging
+import os
 import threading
 
 import telegramify_markdown
@@ -353,6 +354,69 @@ class TelegramChannel(Channel):
             lines.append(f"• {r.created_at.astimezone():%b %-d %-I:%M %p} — {snippet}{extra}")
         await update.message.reply_text("\n".join(lines))
 
+    async def _on_build(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """`/build <description>` — generate + serve a web page/app, reply with the link.
+        A command (not an agent tool) because the local 7B can't reliably select among 15
+        tools; this needs no tool-selection. Runs off the loop (codegen + serve are slow)."""
+        if not self._authorized(update):
+            return
+        description = (update.message.text or "").partition(" ")[2].strip()
+        if not description:
+            await update.message.reply_text("Tell me what to build: /build a landing page for my bakery")
+            return
+        from app.agent.tools.builder_tools import build_web_app
+
+        chat_id = update.effective_chat.id
+        await ctx.bot.send_message(chat_id=chat_id, text="🛠️ Building that — one moment…")
+        try:
+            result = await asyncio.to_thread(lambda: build_web_app.invoke({"description": description}))
+        except Exception as exc:
+            await self._report_error(chat_id, ctx, exc)
+            return
+        await ctx.bot.send_message(chat_id=chat_id, text=result)
+        await asyncio.to_thread(self._log_one, chat_id, "user", update.message.text)
+        await asyncio.to_thread(self._log_one, chat_id, "assistant", result)
+
+    async def _on_doc(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """`/doc <description>` — write a document (local model, so personal content stays
+        local) and send it as a PDF (or .docx if 'word'/'docx' is mentioned)."""
+        if not self._authorized(update):
+            return
+        description = (update.message.text or "").partition(" ")[2].strip()
+        if not description:
+            await update.message.reply_text("Tell me what to write: /doc a one-page plan for my week")
+            return
+        from app.agent.tools import builder_tools
+        from app.agent.tools.builder_tools import make_document
+
+        chat_id = update.effective_chat.id
+        fmt = "docx" if any(w in description.lower() for w in ("word", "docx", ".doc")) else "pdf"
+        await ctx.bot.send_message(chat_id=chat_id, text="📄 Writing that up…")
+
+        def run() -> list[str]:
+            content = router.chat_model(Sensitivity.SENSITIVE, temperature=0.4).invoke([
+                SystemMessage(
+                    "Write a clear, well-structured document for the request. Use Markdown: '# Title', "
+                    "'## Section' headings, and '- ' bullets. Output only the document."
+                ),
+                HumanMessage(description),
+            ]).content
+            make_document.invoke({"title": description[:60], "content": content, "format": fmt})
+            return builder_tools.drain_artifacts()
+
+        try:
+            paths = await asyncio.to_thread(run)
+        except Exception as exc:
+            await self._report_error(chat_id, ctx, exc)
+            return
+        for path in paths:
+            try:
+                with open(path, "rb") as fh:
+                    await ctx.bot.send_document(chat_id=chat_id, document=fh, filename=os.path.basename(path))
+            except Exception:
+                log.exception("failed to send document %s", path)
+        await asyncio.to_thread(self._log_one, chat_id, "user", update.message.text)
+
     async def _on_pause(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._authorized(update):
             return
@@ -551,6 +615,8 @@ class TelegramChannel(Channel):
         app.add_handler(CommandHandler("resume", self._on_resume))
         app.add_handler(CommandHandler("ask", self._on_ask))
         app.add_handler(CommandHandler("sent", self._on_sent))
+        app.add_handler(CommandHandler("build", self._on_build))
+        app.add_handler(CommandHandler("doc", self._on_doc))
         app.add_handler(CallbackQueryHandler(self._on_callback))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._on_message))
         # Proactive reminder-tick (JobQueue = APScheduler on the bot's own loop).
