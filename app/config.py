@@ -101,8 +101,9 @@ class Settings(BaseSettings):
     signal_scanning_enabled: bool = True        # kill-switch for reading email bodies at all
     signal_scan_interval_seconds: int = 21600   # ~6h between scans
     signal_scan_window_days: int = 3            # Gmail `newer_than` window per scan (overlap safety)
-    signal_max_per_scan: int = 5                # cap on bodies fetched + reader calls per scan (cost bound)
+    signal_max_per_scan: int = 3                # cap on bodies fetched + reader calls per scan (cost bound)
     signal_default_return_days: int = 30        # fallback return window when a `return` states no date
+    signal_require_due_date: bool = True        # only surface signals with a concrete date (drops vague/FYI noise)
 
 
 settings = Settings()  # import this everywhere: `from app.config import settings`

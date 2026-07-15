@@ -41,6 +41,16 @@
       "expect": {"is_actionable": true, "signal_type": "delivery"}
     },
     {
+      "name": "promo-with-dates-not-actionable",
+      "email": {
+        "from": "Fandango Deals <deals@fandango.example>",
+        "subject": "🎬 IMAX seats just opened — Aug 8 & Aug 9!",
+        "date": "Mon, 13 Jul 2026 12:00:00 -0700",
+        "body_text": "Great news! Premium IMAX seats just opened for the weekend of Aug 8 & Aug 9. Book now and save 20% with code SUMMER — limited availability, don't miss out!"
+      },
+      "expect": {"is_actionable": false, "signal_type": "other"}
+    },
+    {
       "name": "newsletter-not-actionable",
       "email": {
         "from": "The Weekly Roast <hello@coffeeweekly.example>",

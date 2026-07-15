@@ -396,3 +396,25 @@ def test_end_to_end_multi_type(session, monkeypatch):
         expected = sig.due_date - timedelta(days=settings.reminder_lead_days)  # both are deadline-style
         assert r.due_at == expected
     assert len(session.exec(select(Reminder)).all()) == 2
+
+
+# --- noise filter: require a concrete due date (drops FYI/vague) ----------------
+
+def test_dateless_non_return_signal_is_skipped(session, monkeypatch):
+    _init(session)
+    _patch_gmail(monkeypatch, {"m1": _email(subject="FYI discussion")})
+
+    def extractor(email):  # actionable appointment but NO date → noise
+        return _sig(signal_type="appointment", title="Vague discussion", due_date=None)
+
+    assert email_signals.ingest_signals(session, extractor=extractor, now=datetime.now(UTC)) == []
+
+
+def test_dateless_return_still_surfaces(session, monkeypatch):
+    _init(session)
+    _patch_gmail(monkeypatch, {"m1": _email(subject="Your order")})
+
+    def extractor(email):  # return with no stated date → default window applies → still surfaces
+        return _sig(signal_type="return", title="Jacket", due_date=None)
+
+    assert len(email_signals.ingest_signals(session, extractor=extractor, now=datetime.now(UTC))) == 1

@@ -161,10 +161,16 @@ def ingest_signals(session: Session, *, service=None, extractor=None, now: datet
         try:
             email = google_gmail.get_message_body(mid, service=service)
             sig = extractor(email)
-            if not sig.is_actionable or not (sig.title and sig.title.strip()):
+            due = resolve_due_date(sig.signal_type, sig.due_date, _received_at(email), now=now)
+            # Skip: not actionable, no title, or (noise filter) no concrete date. A dateless
+            # "FYI"/"discussion"/marketing item is exactly the noise Stephanie flagged.
+            if (
+                not sig.is_actionable
+                or not (sig.title and sig.title.strip())
+                or (settings.signal_require_due_date and due is None)
+            ):
                 _mark_processed(session, mid, "skipped")
                 continue
-            due = resolve_due_date(sig.signal_type, sig.due_date, _received_at(email), now=now)
             row = EmailSignal(
                 source=f"gmail:{mid}",
                 signal_type=sig.signal_type,
