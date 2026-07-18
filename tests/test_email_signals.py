@@ -308,6 +308,25 @@ def test_scan_cap_bounds_reader_calls(session, monkeypatch):
     assert reads["n"] == 2  # at most N bodies fetched → cost bound holds
 
 
+# --- 9b. require-due-date noise filter --------------------------------------
+
+def test_require_due_date_drops_dateless_noise(session, monkeypatch):
+    """Regression (the noisy scanner): a dateless 'FYI'/discussion item became a reminder
+    offer. With the filter on, an actionable-but-dateless signal is dropped; off, it's kept."""
+    def dateless(e):  # appointment w/ no date → resolve_due_date returns None
+        return _sig(signal_type="appointment", title="Team sync", due_date=None)
+
+    _init(session)
+    _patch_gmail(monkeypatch, {"m1": _email(subject="FYI")})
+    monkeypatch.setattr(settings, "signal_require_due_date", True)
+    assert email_signals.ingest_signals(session, extractor=dateless, now=datetime.now(UTC)) == []
+
+    _patch_gmail(monkeypatch, {"m2": _email(subject="FYI")})  # a fresh, unprocessed id
+    monkeypatch.setattr(settings, "signal_require_due_date", False)
+    created = email_signals.ingest_signals(session, extractor=dateless, now=datetime.now(UTC))
+    assert len(created) == 1 and created[0].title == "Team sync"
+
+
 # --- 10. approval flow (asks + kill-switch + quiet hours) -------------------
 
 def _make_detected(session, n):

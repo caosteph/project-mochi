@@ -22,8 +22,10 @@ import asyncio
 import logging
 import os
 import threading
+from datetime import time as dt_time
 
 import telegramify_markdown
+from tzlocal import get_localzone
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.types import Command
 from sqlmodel import Session, select
@@ -46,7 +48,7 @@ from app.config import settings
 from app.memory import extract, store
 from app.memory.db import get_engine
 from app.memory.models import EmailSignal, HostedConsult, SignalStatus
-from app.proactive import jobs, reminders
+from app.proactive import briefing, jobs, reminders
 
 log = logging.getLogger(__name__)
 
@@ -426,6 +428,24 @@ class TelegramChannel(Channel):
         jobs.set_enabled(True)
         await update.message.reply_text("🔔 Proactive reminders back on.")
 
+    async def _on_briefing(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """`/briefing` — the morning digest on demand (today's calendar + reminders due
+        today + goals/tasks). Deterministic (no model), and works even when proactivity
+        is paused, since she explicitly asked for it. Built off the loop (calendar I/O)."""
+        if not self._authorized(update):
+            return
+
+        def build() -> str:
+            with Session(get_engine()) as session:
+                return briefing.build_briefing(session)
+
+        try:
+            text = await asyncio.to_thread(build)
+        except Exception as exc:
+            await self._report_error(update.effective_chat.id, ctx, exc)
+            return
+        await update.message.reply_text(text)
+
     async def _run_with_status(
         self,
         chat_id: int,
@@ -627,6 +647,7 @@ class TelegramChannel(Channel):
         app.add_handler(CommandHandler("sent", self._on_sent))
         app.add_handler(CommandHandler("build", self._on_build))
         app.add_handler(CommandHandler("doc", self._on_doc))
+        app.add_handler(CommandHandler("briefing", self._on_briefing))
         app.add_handler(CallbackQueryHandler(self._on_callback))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._on_message))
         # Proactive reminder-tick (JobQueue = APScheduler on the bot's own loop).
@@ -637,6 +658,11 @@ class TelegramChannel(Channel):
         # pushes approval asks for anything actionable it finds.
         app.job_queue.run_repeating(
             jobs.signal_ingest_job, interval=settings.signal_scan_interval_seconds, first=30
+        )
+        # Daily morning briefing — one deterministic digest at the configured local hour.
+        app.job_queue.run_daily(
+            jobs.daily_briefing_job,
+            time=dt_time(hour=settings.briefing_hour, tzinfo=get_localzone()),
         )
         log.info("Telegram channel started (long-polling). Whitelisted chat: %s", settings.telegram_chat_id)
         app.run_polling()

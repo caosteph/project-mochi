@@ -1,0 +1,73 @@
+"""Cross-cutting regression tests — the bugs that actually reached Stephanie, exercised
+across module seams. Component-level cases live with their modules (test_reminders.py,
+test_email_signals.py, test_tool_select.py, test_edge_cases.py); this file covers the
+*integration* seams where those units meet — which is exactly where the duplicate-reminder
+and orphaned-calendar-event failures actually happened.
+"""
+
+import asyncio
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock
+
+from sqlmodel import Session
+from tzlocal import get_localzone
+
+from app.memory.models import ReminderStatus
+from app.proactive import briefing, jobs, reminders
+
+UTC = timezone.utc
+
+
+class RecordingBot:
+    def __init__(self):
+        self.sent = []
+
+    async def send_message(self, chat_id, text, reply_markup=None, **kw):
+        self.sent.append(text)
+
+
+def test_reminder_lifecycle_create_fire_once_cancel_cleans_mirror(engine, monkeypatch):
+    """The full reminder lifecycle in one flow — the seam where the real bugs lived: a
+    reminder mirrors to Calendar on create, fires EXACTLY once at its due time, and
+    cancelling deletes the mirrored event (no orphaned '⏰ …' event left behind — the
+    pollution Stephanie hit when cancelling piled-up reminders)."""
+    from app.integrations import google_calendar
+
+    created, deleted = [], []
+    monkeypatch.setattr(google_calendar, "create_event", lambda **k: created.append(k) or {"id": "evt_1"})
+    monkeypatch.setattr(google_calendar, "delete_event", lambda eid, **k: deleted.append(eid))
+    monkeypatch.setattr("app.config.settings.calendar_mirror_enabled", True)
+    monkeypatch.setattr("app.config.settings.quiet_hours_start", 0)
+    monkeypatch.setattr("app.config.settings.quiet_hours_end", 0)  # never quiet
+    jobs.set_enabled(True)
+
+    now = datetime(2026, 7, 20, 12, 0, tzinfo=UTC)
+    with Session(engine) as s:
+        r = reminders.create_reminder(s, text="return jacket", when="in 2 hours", now=now)
+        assert r.calendar_event_id == "evt_1" and len(created) == 1  # mirrored on create
+
+        later = now + timedelta(hours=2, minutes=1)
+        bot = RecordingBot()
+        assert asyncio.run(jobs.run_reminder_tick(bot, s, chat_id=1, now=later)) == 1  # fires once
+        assert len(bot.sent) == 1 and "return jacket" in bot.sent[0]
+        s.refresh(r)
+        assert r.status == ReminderStatus.SENT.value  # one-off consumed
+
+        assert asyncio.run(jobs.run_reminder_tick(RecordingBot(), s, 1, now=later)) == 0  # exactly-once
+
+        cancelled = reminders.cancel_reminder(s, "jacket")
+        assert cancelled.status == ReminderStatus.CANCELLED.value
+        assert deleted == ["evt_1"] and cancelled.calendar_event_id is None  # no orphan
+
+
+def test_reminder_created_today_flows_into_the_briefing(engine, monkeypatch):
+    """Integration across the parser → briefing seam: a reminder set for later today
+    (parsed by dateparser, not the model) shows up in the morning digest."""
+    monkeypatch.setattr("app.config.settings.calendar_mirror_enabled", False)
+    now = datetime.now(get_localzone()).replace(hour=8, minute=0, second=0, microsecond=0)
+    svc = MagicMock()
+    svc.events().list().execute.return_value = {"items": []}
+    with Session(engine) as s:
+        reminders.create_reminder(s, text="call the dentist", when="today at 4pm", now=now)
+        out = briefing.build_briefing(s, now=now, service=svc)
+    assert "call the dentist" in out

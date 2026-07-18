@@ -18,7 +18,7 @@ from app.config import settings
 from app.memory import store
 from app.memory.db import get_engine
 from app.memory.models import EmailSignal, SignalStatus
-from app.proactive import email_signals, reminders
+from app.proactive import briefing, email_signals, reminders
 
 log = logging.getLogger(__name__)
 
@@ -160,3 +160,28 @@ async def signal_ingest_job(context) -> None:
             await send_pending_asks(context.bot, session, settings.telegram_chat_id)
     except Exception:
         log.exception("signal_ingest_job crashed; will retry next interval")
+
+
+# --- Phase 6: the daily morning briefing ------------------------------------
+
+async def run_daily_briefing(bot, session: Session, chat_id: int, *, now=None, service=None) -> bool:
+    """Send the morning digest — ONE deterministic message. Gated by the /pause
+    kill-switch and `briefing_enabled`. Returns True if a briefing was sent. Testable
+    core: pass a mock bot + scratch session + mock calendar `service`."""
+    now = now or datetime.now(timezone.utc)
+    if not _enabled or not settings.briefing_enabled:
+        return False
+    text = briefing.build_briefing(session, now=now, service=service)
+    await bot.send_message(chat_id=chat_id, text=text)
+    store.log_message(session, chat_id=chat_id, role="assistant", text="[briefing] daily digest")
+    return True
+
+
+async def daily_briefing_job(context) -> None:
+    """PTB JobQueue callback — fires once a day (run_daily) at the configured hour.
+    Top-level try/except so a failure never stops tomorrow's run."""
+    try:
+        with Session(get_engine()) as session:
+            await run_daily_briefing(context.bot, session, settings.telegram_chat_id)
+    except Exception:
+        log.exception("daily_briefing_job crashed; will retry tomorrow")

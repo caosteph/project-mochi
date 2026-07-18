@@ -85,6 +85,12 @@ class Settings(BaseSettings):
     calendar_mirror_enabled: bool = True   # mirror timed reminders into Google Calendar events
     reminder_event_default_minutes: int = 15  # calendar-event length when the task implies no duration
 
+    # Daily briefing (Phase 6) — one deterministic morning digest (today's calendar +
+    # reminders due today + active goals/tasks). Pushed once a day; /briefing gets it
+    # on demand. Assembled in code (no LLM), so it can't go incoherent or dump JSON.
+    briefing_enabled: bool = True          # the morning push; /briefing (on-demand) always works
+    briefing_hour: int = 8                 # local hour for the morning push (after quiet hours ends)
+
     # Cross-turn cap on side-effectful agent actions (draft/reminder creation) — a
     # runaway/injected-loop guard, per action type, per rolling hour.
     max_actions_per_hour: int = 30

@@ -19,7 +19,7 @@ run() {
 
 run uv run ruff check app/ tests/ scripts/
 run uv run pytest tests/ -q
-for s in verify_phase1 verify_phase2 verify_phase3 verify_phase3b verify_phase4a verify_phase4b verify_dynamic_tools; do
+for s in verify_phase1 verify_phase2 verify_phase3 verify_phase3b verify_phase4a verify_phase4b verify_dynamic_tools verify_scenarios; do
   run uv run python "scripts/$s.py"
 done
 

@@ -22,6 +22,7 @@ The full plan, learning docs, and per-phase build guides live in this repo's **`
 - `docs/08-phase3b-build.md` — quarantined reader (dual-LLM) + general email-signal pipeline.
 - `docs/09-phase4a-build.md` — sensitivity router + de-identified hosted delegation.
 - `docs/10-phase4b-build.md` — the builder: sandboxed web-app + document generation.
+- `docs/11-phase6-build.md` — daily briefing (deterministic morning digest) + testing hardening.
 
 ## How to work here (Stephanie's standing guidance)
 
@@ -30,7 +31,8 @@ Explicit, always-on expectations for any AI session in this repo — read this e
   "It works" / "it's done" requires proof: a passing test, a green verify run, a real round-trip.
 - **Test everything.** Add/extend `tests/` + the phase `scripts/verify_*.py`, driving the *real* code and
   model (not just plumbing). **After ANY persona/tool/graph change, re-run the tool-firing verifies
-  (`verify_phase1/2/3` + `verify_dynamic_tools`) BEFORE claiming success — they regress silently.** Never
+  (`verify_phase1/2/3` + `verify_dynamic_tools` + `verify_scenarios`) BEFORE claiming success — they
+  regress silently.** `verify_scenarios` is the behavioral gate (right tool fires + no JSON dump). Never
   report a model metric from a single run (re-run to rule out variance; the 7B is stochastic).
   `scripts/verify_all.sh` runs the whole regression **sequentially** (Ollama serializes — parallel runs
   give misleading results).
@@ -46,6 +48,17 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 *must* hold, it belongs in code, per the two-tier model below.)
 
 ## Current status
+
+**Phase 6 — the daily briefing (+ testing hardening).** Mochi now sends a **daily morning briefing**:
+one *deterministic* digest (no LLM → it can't dump JSON or wander) of today's calendar, reminders due
+today, and active goals/tasks — pushed once each morning via `run_daily` at `briefing_hour` (8am, after
+quiet hours) and on demand via **`/briefing`**. Gated by the `/pause` kill-switch. Email is deliberately
+excluded (the Phase 3B scanner is paused/noisy). Assembled in `app/proactive/briefing.py`. This phase also
+**hardened testing** after a run of bugs that reached Stephanie before any test caught them: the unit
+suite mocks the model+Google, so behavioral regressions were invisible until live. New:
+`scripts/verify_scenarios.py` (real-model — right tool fires + **no JSON dump** + on-topic),
+`tests/test_regressions.py` (cross-cutting integration seams: full reminder lifecycle + parser→briefing),
+`tests/test_briefing.py`, and the previously-untested require-due-date filter. See `docs/11-phase6-build.md`.
 
 **Phase 4B — the builder (step 1 shipped).** Mochi can now **build things**: `app/builder/` scaffolds/
 writes web apps and generates **PDFs/Word docs**, runs them in a **sandbox** (`SubprocessSandbox`:
