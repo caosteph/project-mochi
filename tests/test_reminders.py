@@ -262,3 +262,20 @@ def test_dedupe_pending_reminders_clears_backlog(engine):
         assert len(cancelled) == 3  # 4 identical → keep 1, cancel 3
         pending = s.exec(select(Reminder).where(Reminder.status == ReminderStatus.PENDING.value)).all()
         assert len(pending) == 2  # 1 claims + 1 yoga survive
+
+
+def test_cancel_reminder_deletes_mirrored_calendar_event(engine, monkeypatch):
+    from app.integrations import google_calendar
+
+    deleted = []
+    monkeypatch.setattr(google_calendar, "delete_event", lambda eid, **k: deleted.append(eid))
+    with Session(engine) as s:
+        r = Reminder(text="x", due_at=datetime(2026, 7, 20, 12, tzinfo=UTC),
+                     status=ReminderStatus.PENDING.value, calendar_event_id="ev123")
+        s.add(r)
+        s.commit()
+        s.refresh(r)
+        cancelled = reminders.cancel_reminder(s, str(r.id))
+        assert cancelled.status == ReminderStatus.CANCELLED.value
+        assert deleted == ["ev123"]  # the orphaned calendar event is removed
+        assert cancelled.calendar_event_id is None

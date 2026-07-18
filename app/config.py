@@ -98,7 +98,7 @@ class Settings(BaseSettings):
 
     # Email signal ingestion (Phase 3B) — the quarantined reader scans recent mail,
     # extracts a typed actionable signal, and proactively asks before creating a reminder.
-    signal_scanning_enabled: bool = True        # kill-switch for reading email bodies at all
+    signal_scanning_enabled: bool = False       # OFF by default — the email scanner was too noisy; re-enable once proven quiet
     signal_scan_interval_seconds: int = 21600   # ~6h between scans
     signal_scan_window_days: int = 3            # Gmail `newer_than` window per scan (overlap safety)
     signal_max_per_scan: int = 3                # cap on bodies fetched + reader calls per scan (cost bound)

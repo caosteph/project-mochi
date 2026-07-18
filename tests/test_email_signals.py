@@ -299,9 +299,11 @@ def test_first_run_is_go_forward_only(session, monkeypatch):
 def test_scan_cap_bounds_reader_calls(session, monkeypatch):
     _init(session)
     monkeypatch.setattr(settings, "signal_max_per_scan", 2)
-    emails = {f"m{i}": _email(subject="Return") for i in range(10)}
+    words = ["apple", "banana", "cherry", "date", "fig", "grape", "kiwi", "lemon", "mango", "nut"]
+    emails = {f"m{i}": _email(subject=w) for i, w in enumerate(words)}
     reads = _patch_gmail(monkeypatch, emails, ids=list(emails))
-    created = email_signals.ingest_signals(session, extractor=lambda e: _sig(title="Jacket"), now=datetime.now(UTC))
+    # fully-distinct titles so the cap (not signal dedup) is what bounds this
+    created = email_signals.ingest_signals(session, extractor=lambda e: _sig(title=e["subject"]), now=datetime.now(UTC))
     assert len(created) == 2  # capped
     assert reads["n"] == 2  # at most N bodies fetched → cost bound holds
 
@@ -373,6 +375,7 @@ def test_reject_dismisses_without_a_reminder(session):
 def test_end_to_end_multi_type(session, monkeypatch):
     import asyncio
     _init(session)
+    monkeypatch.setattr(settings, "signal_scanning_enabled", True)  # scanner is off by default now
     monkeypatch.setattr(settings, "quiet_hours_start", 0)
     monkeypatch.setattr(settings, "quiet_hours_end", 0)
     now = datetime(2026, 7, 13, tzinfo=UTC)
@@ -418,3 +421,20 @@ def test_dateless_return_still_surfaces(session, monkeypatch):
         return _sig(signal_type="return", title="Jacket", due_date=None)
 
     assert len(email_signals.ingest_signals(session, extractor=extractor, now=datetime.now(UTC))) == 1
+
+
+def test_signal_dedup_collapses_same_entity(session, monkeypatch):
+    _init(session)
+    _patch_gmail(monkeypatch, {
+        "m1": _email(subject="Palantir Offer Chat"),
+        "m2": _email(subject="Palantir Technologies Meeting"),
+        "m3": _email(subject="Dentist checkup"),
+    }, ids=["m1", "m2", "m3"])
+
+    def extractor(email):
+        return _sig(signal_type="appointment", title=email["subject"], due_date="2026-08-01")
+
+    created = email_signals.ingest_signals(session, extractor=extractor, now=datetime.now(UTC))
+    titles = [c.title for c in created]
+    # the two Palantir emails collapse to one offer; the dentist is a separate thing
+    assert len(created) == 2 and any("Palantir" in t for t in titles) and any("Dentist" in t for t in titles)

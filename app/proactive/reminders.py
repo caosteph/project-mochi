@@ -16,6 +16,7 @@ from sqlmodel import Session, select
 from tzlocal import get_localzone
 
 from app.config import settings
+from app.proactive import text_match
 from app.memory.models import (
     DEADLINE_SIGNAL_TYPES,
     EmailSignal,
@@ -160,72 +161,44 @@ def _maybe_mirror(
         log.warning("Calendar mirror failed for reminder %s (reminder still active)", reminder.id, exc_info=True)
 
 
-def _norm_text(text: str) -> str:
-    return " ".join((text or "").lower().split())
-
-
 def _find_duplicate(session: Session, text: str, due_at: datetime) -> Reminder | None:
     """An existing PENDING reminder for the same task in the same due-window — so repeated
     asks / double tool-calls don't pile up (a real bug: 'Perplexity prep' ×4, 'yoga class'
-    in six wordings). Matches on identical text OR a shared distinguishing content word, so
-    "yoga class"/"go to yoga class" collapse but "submit the form" stays separate from
-    "submit health insurance claims"."""
+    in six wordings). "yoga class"/"go to yoga class" collapse; "submit the form" stays
+    separate from "submit health insurance claims" (see app/proactive/text_match.py)."""
     window = settings.reminder_dedup_window_minutes * 60
-    norm = _norm_text(text)
-    words = _content_words(text)
     candidates = session.exec(
         select(Reminder).where(Reminder.status == ReminderStatus.PENDING.value)
     ).all()
     for r in candidates:
-        if abs((r.due_at - due_at).total_seconds()) <= window and (
-            _norm_text(r.text) == norm or bool(_content_words(r.text) & words)
-        ):
+        if abs((r.due_at - due_at).total_seconds()) <= window and text_match.same_thing(r.text, text):
             return r
     return None
 
 
-# Words that carry no distinguishing meaning for a reminder — ignored when deciding
-# whether two differently-worded reminders are really the same task.
-_STOP_WORDS = {
-    "the", "a", "an", "to", "my", "for", "of", "on", "at", "and", "in", "do", "go",
-    "submit", "prep", "prepare", "respond", "attend", "get", "take", "reminder", "remind",
-    "call", "please", "me", "up", "with", "about",
-}
-
-
-def _content_words(text: str) -> set[str]:
-    return {w for w in _norm_text(text).split() if len(w) > 2 and w not in _STOP_WORDS}
-
-
-def dedupe_pending_reminders(session: Session, *, fuzzy: bool = True, dry_run: bool = False) -> list[int]:
-    """One-time cleanup: cancel already-accumulated duplicate PENDING reminders, keeping
-    the earliest of each group. Two reminders in the same due-window are duplicates if
-    their text is identical OR (fuzzy) they share a distinguishing content word — so "yoga
-    class"/"go to yoga class"/"attend yoga class" collapse, but "submit the form" stays
-    separate from "submit health insurance claims". The A2 create-time dedup stops NEW
-    dupes; this clears the pre-existing backlog. Reversible (status→cancelled). Returns the
-    cancelled ids."""
+def dedupe_pending_reminders(session: Session, *, dry_run: bool = False) -> list[int]:
+    """One-time cleanup: cancel already-accumulated duplicate PENDING reminders, keeping the
+    earliest of each same-task group (same due-window). The create-time dedup stops NEW dupes;
+    this clears the pre-existing backlog. Reversible (status→cancelled). Returns cancelled ids."""
     window = settings.reminder_dedup_window_minutes * 60
     pending = session.exec(
         select(Reminder).where(Reminder.status == ReminderStatus.PENDING.value).order_by(Reminder.id)
     ).all()
-    kept: list[tuple[str, set[str], datetime]] = []
+    kept: list[tuple[str, datetime]] = []
     cancelled: list[int] = []
     for r in pending:
-        norm = _norm_text(r.text)
-        words = _content_words(r.text)
         is_dup = any(
-            abs((kd - r.due_at).total_seconds()) <= window
-            and (kn == norm or (fuzzy and bool(kw & words)))
-            for kn, kw, kd in kept
+            abs((kd - r.due_at).total_seconds()) <= window and text_match.same_thing(kt, r.text)
+            for kt, kd in kept
         )
         if is_dup:
             cancelled.append(r.id)
             if not dry_run:
+                _delete_mirror(r)  # also remove its orphaned calendar event
                 r.status = ReminderStatus.CANCELLED.value
                 session.add(r)
         else:
-            kept.append((norm, words, r.due_at))
+            kept.append((r.text, r.due_at))
     if not dry_run:
         session.commit()
     return cancelled
@@ -435,8 +408,25 @@ def mirror_reminder(
     return reminder.calendar_event_id
 
 
+def _delete_mirror(reminder: Reminder) -> None:
+    """Delete a reminder's mirrored Google Calendar event, if any. Cancelling a reminder
+    must not leave an orphaned '⏰ …' event cluttering the calendar (a real bug — cancelled
+    duplicates left their events behind). Best-effort; only deletes the event Mochi created
+    (by its stored id), never a real user event."""
+    if not reminder.calendar_event_id:
+        return
+    try:
+        from app.integrations import google_calendar
+
+        google_calendar.delete_event(reminder.calendar_event_id)
+    except Exception:
+        log.warning("failed to delete mirrored event for reminder %s", reminder.id, exc_info=True)
+    reminder.calendar_event_id = None
+
+
 def cancel_reminder(session: Session, query: str) -> Reminder | None:
-    """Cancel by numeric id or a case-insensitive substring of the text."""
+    """Cancel by numeric id or a case-insensitive substring of the text — and remove its
+    mirrored calendar event so nothing is left behind."""
     reminder = None
     if query.strip().isdigit():
         reminder = session.get(Reminder, int(query.strip()))
@@ -450,6 +440,7 @@ def cancel_reminder(session: Session, query: str) -> Reminder | None:
         reminder = next((r for r in candidates if q in r.text.lower()), None)
     if reminder is None:
         return None
+    _delete_mirror(reminder)
     reminder.status = ReminderStatus.CANCELLED.value
     session.add(reminder)
     session.commit()
