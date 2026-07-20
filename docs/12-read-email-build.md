@@ -102,15 +102,21 @@ DATABASE_URL=postgresql://localhost/personal_agent_test uv run python scripts/ve
 Live (transport): from the phone, "what did the … email say?" → a correct gist; confirm
 the raw body never appears.
 
-## Known soft-tier limitation
+## ~~Known soft-tier limitation~~ — RESOLVED (it was a misdiagnosis)
 
-The **question forms** fire `read_email` reliably (measured 3/3 on the real 7B): "what did
-the landlord's email say?", "what does the email from my doctor say?", "summarize the …
-email". The bare **imperative** "read me the email from X about Y" is unreliable (0/3) — the
-7B sometimes misreads "read me …" as meta-instructions and derails into a greeting rather
-than engaging the request. This is a model parsing quirk, not a routing bug (`read_email` is
-correctly bound for that prompt); it isn't worth another high-variance persona edit to chase.
-A bigger local model (the Mac-mini lever) would likely close it.
+*Originally documented here:* the question forms fired `read_email` reliably (3/3) but the bare
+imperative **"read me the email from X about Y"** fired **0/3**, and I attributed it to the 7B
+misreading "read me …" as meta-instructions — "a model parsing quirk … not worth chasing."
+
+**That was wrong.** The real cause was **context exhaustion**: the model ran at Ollama's default
+`num_ctx` 4096 while a turn's prompt was already ~4,000 tokens, leaving ~75 tokens of generation
+headroom and forcing context-shifting that evicted the persona mid-reply. With the 8k-context model
+(`ollama/Modelfile.qwen2.5-7b-8k`), that same prompt fires **4/4**. See
+[`docs/14-future-work.md`](./14-future-work.md) for the full measurements.
+
+**Lesson worth keeping:** "the small model is just flaky" is a *hypothesis*, not an explanation —
+it's worth measuring the environment (context, truncation) before writing a behavior off as a
+model limitation.
 
 ## Deferred
 

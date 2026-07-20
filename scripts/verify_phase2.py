@@ -126,13 +126,14 @@ def check_tool_reliability(floor: float = 0.6) -> None:
         "am I free tomorrow afternoon?",
         "what meetings do I have this week?",
     ]
-    # No real personal email here (public repo). create_draft is the most tool-count-diluted
-    # action on the 17-tool 7B — only richer-content phrasings fire it reliably (measured), so
-    # these are chosen for that, and the floor below tolerates the marginality.
+    # No real personal email here (public repo). NOTE: these all fired 0/4 while the model ran
+    # at num_ctx=4096 — which was misdiagnosed as "create_draft is tool-count-diluted". The real
+    # cause was context exhaustion (prompts ~4,000 tokens against a 4,096 window left ~75 tokens
+    # of generation headroom). At num_ctx=8192 they fire 4/4. See docs/14-future-work.md.
     draft_prompts = [
+        "draft an email to me saying hi",
         "draft a quick note to myself reminding me to call mom",
-        "draft a thank-you note to Sam for dinner last night",
-        "draft a note to my friend Sam saying hello",
+        "draft a note to alex@example.com saying hello",
     ]
 
     # Each probe streams only to the approval interrupt and never approves, so
@@ -146,16 +147,14 @@ def check_tool_reliability(floor: float = 0.6) -> None:
         cal_hits / len(cal_prompts) >= floor,
         f"{cal_hits}/{len(cal_prompts)} — soft-tier (prompt) reliability on a 7B, floor {floor:.0%}",
     )
-    # create_draft gets a lower floor: it's the most tool-count-diluted action on the 17-tool
-    # 7B (cf. remember_fact in verify_phase1). This guards against a total firing COLLAPSE; the
-    # gate's *correctness* (pauses, reject-writes-nothing, approve-writes-once) is proven
-    # deterministically in tests/test_confirm_gate.py, so it doesn't need a high firing floor here.
-    draft_floor = 0.33
+    # Restored to the normal floor: the lower one was a workaround for a MISDIAGNOSIS — the
+    # create_draft "marginality" was context exhaustion at num_ctx=4096, not tool-count dilution.
+    # With the 8k-context model these prompts fire 4/4. Gate correctness is separately proven
+    # deterministically in tests/test_confirm_gate.py.
     check(
         "model fires create_draft (rate)",
-        draft_hits / len(draft_prompts) >= draft_floor,
-        f"{draft_hits}/{len(draft_prompts)} — soft-tier reliability on a 17-tool 7B, floor {draft_floor:.0%} "
-        "(gate correctness proven in tests/test_confirm_gate.py)",
+        draft_hits / len(draft_prompts) >= floor,
+        f"{draft_hits}/{len(draft_prompts)} — soft-tier (prompt) reliability on a 7B, floor {floor:.0%}",
     )
 
 

@@ -1,0 +1,25 @@
+# qwen2.5:7b with an 8k context window.
+#
+# WHY: measured (2026-07) that a normal turn's prompt is ~3,800–4,050 tokens — against Ollama's
+# DEFAULT num_ctx of 4096. num_ctx covers prompt + generation, so that left only ~75 tokens of
+# room to reply, forcing llama.cpp context-shifting mid-generation (evicting the front of the
+# prompt — the persona's tool instructions). Effect on tool-firing was dramatic:
+#
+#   prompt (all previously "known-hard")                       4096 ->  8192
+#   "ping me in 2 hours to stretch"        -> add_reminder       0/8  ->   6/6
+#   "draft an email to me saying hi"       -> create_draft       0/4  ->   4/4
+#   "draft a note to alex@example.com ..." -> create_draft       0/8  ->   4/4
+#   "read me the email from Chase ..."     -> read_email         0/3  ->   4/4
+#
+# Cost: +0.3 GB resident (4.6 -> 4.9 GB), no swap on the 16GB Air.
+#
+# Ollama's OpenAI-compatible endpoint IGNORES per-request num_ctx, and OLLAMA_CONTEXT_LENGTH is
+# global (it would also inflate nomic-embed-text), so a derived model is the surgical fix. It
+# reuses the base layers — no extra disk.
+#
+# BUILD (re-run after ever re-pulling the base model):
+#   ollama create qwen2.5:7b-8k -f ollama/Modelfile.qwen2.5-7b-8k
+# then set LOCAL_MODEL=qwen2.5:7b-8k in .env
+
+FROM qwen2.5:7b
+PARAMETER num_ctx 8192

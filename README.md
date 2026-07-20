@@ -135,10 +135,19 @@ with `qwen2.5:7b` + `nomic-embed-text` pulled, Postgres with a `personal_agent` 
 extension, and a Telegram bot token.
 
 ```bash
+# Build the 8k-context model (REQUIRED — see note below), then:
+ollama create qwen2.5:7b-8k -f ollama/Modelfile.qwen2.5-7b-8k
+
 cp .env.example .env      # fill in TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID (+ Google creds for P2+)
 uv sync                   # install dependencies
 uv run python -m app.main
 ```
+
+> **Why the custom model:** Ollama's default context is 4,096 tokens, but a turn's prompt here is
+> already ~4,000 (persona + tool schemas + history) — leaving ~75 tokens to generate a reply, which
+> forces context-shifting that silently evicts the system prompt and breaks tool-calling. Measured:
+> several prompts went **0/4 → 4/4** from this change alone. Details in
+> [`docs/14-future-work.md`](./docs/14-future-work.md).
 
 Message your bot on Telegram — the reply is generated entirely on your own machine.
 

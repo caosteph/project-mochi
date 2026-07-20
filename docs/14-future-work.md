@@ -10,22 +10,41 @@ status is in `CLAUDE.md`. Ordered within each group by leverage.
 
 ---
 
-## Latency & the 7B reliability ceiling
+## ✅ RESOLVED — the context window was starving generation (2026-07)
 
-**⭐ Raise the local model's context window (likely the single highest-leverage fix).**
-- **Problem:** measured — the model loads at **`num_ctx` = 4096** (Ollama's default; the app never
-  sets it), but the persona alone is **~3,600 tokens**. Add the bound tools' schemas, the rolling
-  summary, and recent turns and a turn **overflows 4096 and truncates the front — the persona/system
-  instructions** (the "call this tool immediately" rules). This is a strong candidate root cause of
-  the tool-firing flakiness we keep fighting (create_draft/remember_fact/add_reminder wobble).
-- **Why it's not an app change:** Ollama's OpenAI-compatible endpoint **ignores per-request
-  `num_ctx`** (verified). Raising it is operational: set **`OLLAMA_CONTEXT_LENGTH=8192`** on the
-  Ollama server (simplest) or bake a Modelfile model (`PARAMETER num_ctx 8192`).
-- **The catch (why it's a decision, not a default):** a bigger KV cache costs **more memory** on the
-  16GB Air (already tight). It's a memory-for-reliability trade to make deliberately.
-- **Effort:** ~15 min to try + validate. **Experiment:** set `OLLAMA_CONTEXT_LENGTH=8192`, restart
-  Ollama, `scripts/verify_firing.py add_reminder,create_draft,web_search` vs the 4096 baseline. If
-  firing improves, it's the cheapest quality win on the board.
+Kept here because it reframes several older "7B limitations" as misdiagnoses.
+
+- **What was wrong:** Ollama's default `num_ctx` is **4096**, but a normal turn's prompt measures
+  **~3,800–4,050 tokens** (persona ~3,600 + bound tool schemas + rolling summary + history).
+  `num_ctx` covers **prompt + generation**, so only **~75 tokens** remained to produce a reply —
+  forcing llama.cpp **context-shifting mid-generation**, which evicts the front of the prompt: the
+  persona's "call this tool immediately" instructions.
+- **Not a prompt-eval truncation.** Prompt token counts are *identical* at 4096 and 8192 (3902,
+  4021, 3954 …), so the prompt always fit. The damage happened while generating.
+- **Fix:** a derived model, `ollama/Modelfile.qwen2.5-7b-8k` (`FROM qwen2.5:7b` +
+  `PARAMETER num_ctx 8192`) + `LOCAL_MODEL=qwen2.5:7b-8k`. Surgical: Ollama's OpenAI endpoint ignores
+  per-request `num_ctx`, and `OLLAMA_CONTEXT_LENGTH` is global (would also inflate nomic-embed).
+- **Measured effect** — every previously "known-hard" prompt, N as shown:
+
+  | prompt → tool | 4096 | 8192 |
+  |---|---|---|
+  | "ping me in 2 hours to stretch" → `add_reminder` | 0/8 | **6/6** |
+  | "draft an email to me saying hi" → `create_draft` | 0/4 | **4/4** |
+  | "draft a note to alex@example.com …" → `create_draft` | 0/8 | **4/4** |
+  | "read me the email from Chase …" → `read_email` | 0/3 | **4/4** |
+
+  Already-reliable prompts stayed 4/4 (a saturated set shows no delta — that's why the first
+  `verify_firing` comparison read 33/36 → 33/36 and looked like a null result).
+- **Cost:** +0.3 GB resident (4.6 → 4.9 GB); memory pressure unchanged, **zero swap** on the 16GB Air.
+- **Misdiagnoses this corrects:** "the imperative *read me the email* derails the 7B" (docs/12);
+  "the model won't draft to `alex@example.com`"; "`create_draft` is tool-count-diluted" (which had me
+  lower a verify floor); and it **mechanistically explains why net-additive persona edits tanked
+  firing** — extra persona tokens ate the last of the generation headroom.
+- **Follow-up worth testing:** the documented **"tool-count wall"** (~11 tools bound → fires, 13–15 →
+  ~0) may also have been *context* pressure, since each bound tool adds schema tokens. If so, the
+  per-turn cap in `app/agent/tool_select.py` could be raised. Cheap to test with `verify_firing.py`.
+
+## Latency & the 7B reliability ceiling
 
 **Mac mini + a larger local model (the root fix).**
 - **Problem:** the 7B on a 16GB M2 Air is the ceiling for both quality (tool-firing reliability, the

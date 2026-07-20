@@ -54,6 +54,19 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 
 ## Current status
 
+**Phase 8.1 — the context fix (a root-cause win, and a correction to earlier conclusions).**
+Measured that a turn's prompt is **~3,800–4,050 tokens** while Ollama's default `num_ctx` is **4096**
+— and `num_ctx` covers *prompt + generation*, so only ~75 tokens remained to reply, forcing
+context-shifting that evicted the persona mid-generation. Fixed with a derived 8k model
+(`ollama/Modelfile.qwen2.5-7b-8k` + `LOCAL_MODEL=qwen2.5:7b-8k`; the OpenAI endpoint ignores
+per-request `num_ctx`, and `OLLAMA_CONTEXT_LENGTH` is global). Every previously "known-hard" prompt
+went **0/23 → 18/18** (e.g. "ping me in 2 hours to stretch" 0/8→6/6; "read me the email from Chase"
+0/3→4/4). Cost +0.3GB resident, zero swap. **This corrects several earlier misdiagnoses** ("the 7B
+derails on imperatives", "create_draft is tool-count-diluted") and explains *why* net-additive persona
+edits tanked firing — they ate the last of the generation headroom. Prompt token counts are identical
+at 4096 and 8192, so the prompt always *fit*; the damage was during generation. Open question worth
+testing: the "tool-count wall" may also have been context pressure. See `docs/14-future-work.md`.
+
 **Phase 8 — web search (scrubbed + approved + audited).** Mochi can now **look things up online**
 (weather, prices, hours, "is X open", news). New `web_search` tool (`app/agent/tools/web_tools.py`)
 reuses the `consult_expert` privacy spine: `sanitize.redact` scrubs the query, `is_too_personal`
@@ -248,6 +261,14 @@ don't stub them out empty. See `00-plan.md` for the target tree.
 Prereqs (see `03-phase0-build.md` for full setup): Ollama running with `qwen2.5:7b` pulled,
 Postgres.app with a `personal_agent` DB (+ `vector` extension), and a `.env` filled from
 `.env.example` (bot token + your chat_id).
+
+**Required: build the 8k-context model.** Ollama's default `num_ctx` is 4096, but a turn's prompt is
+already ~4,000 tokens — leaving ~75 tokens to generate, which forces context-shifting and silently
+breaks tool-calling (measured: several prompts 0/4 → 4/4 from this alone).
+```bash
+ollama create qwen2.5:7b-8k -f ollama/Modelfile.qwen2.5-7b-8k   # re-run after re-pulling the base
+```
+then `LOCAL_MODEL=qwen2.5:7b-8k` in `.env`. Measurements: `docs/14-future-work.md`.
 
 ```bash
 cd ~/personal-agent
