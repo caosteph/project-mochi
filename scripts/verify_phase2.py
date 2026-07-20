@@ -129,7 +129,7 @@ def check_tool_reliability(floor: float = 0.6) -> None:
     draft_prompts = [
         "draft an email to me saying hi",
         "draft a quick note to myself reminding me to call mom",
-        "draft a note to stephaniecao46@gmail.com saying hello",
+        "draft a note to alex@example.com saying hello",
     ]
 
     # Each probe streams only to the approval interrupt and never approves, so

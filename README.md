@@ -1,35 +1,165 @@
-# personal-agent
+# Mochi — a private, local-first personal AI agent
 
-A private, local-first personal AI agent you message from your phone. Telegram → LangGraph →
-a local open-weight model (Ollama), with durable Postgres state. Long-term memory, Gmail/
-Calendar/Drive, goal tracking, and proactivity are added phase by phase.
+Mochi is a personal AI assistant you message from your phone like a friend. It remembers your
+life, watches your inbox and calendar, sets reminders, builds little web apps and documents — and
+it does this **proactively** (its flagship trick: notice a purchase in your email and remind you to
+return it before the window closes).
 
-> **Design docs & roadmap live in [`docs/`](./docs).** Start with [`docs/00-plan.md`](./docs/00-plan.md).
-> **Working in this repo (human or AI)?** Read [`CLAUDE.md`](./CLAUDE.md) first — it has the
-> non-negotiable privacy/safety rules.
+The point that shapes every design decision: **it runs on your own machine, on open-weight models,
+and your private data never leaves.** No personal data is sent to a cloud LLM. Mochi *proposes*;
+you *dispose* — every action that touches the outside world waits for your explicit approval.
 
-## Status
+> **Status:** actively built, phase by phase. Currently at **Phase 6/7** — durable memory, Google
+> Calendar/Gmail, proactive reminders, safe email reading, a daily briefing, and a sandboxed
+> app/document builder are all working. See [Current status](#current-status).
 
-**Phase 3A** — proactive reminders: on top of durable memory (P1) and Google Calendar/Gmail with a
-human-in-the-loop approval gate (P2), Mochi is now **proactive** — set any reminder by talking to her
-("call mom every Sunday"), and she pushes it to you unprompted (with Done/Snooze), quiet-hours-aware,
-mirrored into Google Calendar. Email receipt auto-extraction is next (3B). See the per-phase guides in
-[`docs/`](./docs).
+> This is a personal project built in the open as a learning exercise. It is **not** a packaged
+> product — expect rough edges, and read [`CLAUDE.md`](./CLAUDE.md) + [`docs/`](./docs) before
+> running it.
+
+---
+
+## Why this exists
+
+Most "AI assistants" send everything you say to a cloud model. For an assistant that holds your
+email, your calendar, your habits, and your relationships, that's the wrong default. Mochi is an
+experiment in the opposite: a genuinely *personal* agent where
+
+- **privacy is structural, not a promise** — anything sourced from your data runs on a local model
+  with local embeddings, enforced by a deterministic router in code, not by a prompt;
+- **you stay in control** — it can draft an email but never send one; every external write pauses
+  for your approval;
+- **untrusted content can't hijack it** — email/web text is read by a separate, tool-less model and
+  reduced to validated data before the main agent ever sees it.
+
+## How it works
+
+```
+     Telegram (your phone)
+            │  long-polling, chat-id whitelisted
+            ▼
+   ┌─────────────────────────────────────────────┐
+   │  LangGraph agent  (local model via Ollama)   │
+   │  • dynamic per-turn tool selection           │
+   │  • human-in-the-loop interrupt() for writes  │
+   │  • rolling summary + context trimming        │
+   └───────┬─────────────────────────┬────────────┘
+           │ tools                    │ untrusted email/web bodies
+           ▼                          ▼
+   memory · reminders · google   ┌──────────────────────────┐
+   · builder · expert-consult    │  Quarantined reader       │
+           │                     │  (separate, TOOL-FREE      │
+           ▼                     │   local model → validated  │
+   Postgres + pgvector           │   structured data only)    │
+   (relational + semantic        └──────────────────────────┘
+    memory + LangGraph
+    checkpointer)
+```
+
+- **Deterministic sensitivity router** picks local vs. hosted models *by data origin* (in code,
+  never by an LLM), and fails closed. Personal data → always local. A hosted model is used only for
+  opt-in, de-identified, PII-scrubbed, audited questions — raw personal data never leaves.
+- **Dynamic tool selection** solves a real limit: the local 7B collapses when bound with too many
+  tools, so each turn binds only a small, relevant subset chosen from your message.
+
+## Tech stack
+
+| Area | Choice |
+|------|--------|
+| Language / tooling | **Python 3.12**, [`uv`](https://github.com/astral-sh/uv) |
+| Agent runtime | **LangGraph** — stateful graph, tool nodes, `interrupt()`, durable Postgres checkpointer |
+| Models (local) | **Ollama** — `qwen2.5:7b` (chat) + `nomic-embed-text` (embeddings), via an OpenAI-compatible API so local↔hosted is a base-URL swap |
+| Data | **Postgres + pgvector** — one store for relational tables (SQLModel), semantic recall, and the checkpointer |
+| Channel | **python-telegram-bot** (long-polling); a `Channel` interface keeps iMessage a drop-in later |
+| Integrations | **Google API** (Calendar + Gmail, least-privilege scopes — `gmail.readonly` + `gmail.compose`, never `send`) |
+| Builder | **reportlab** / **python-docx** for documents; a subprocess sandbox for generated web apps |
+
+## Safety model (the non-negotiables)
+
+These are enforced in **code**, outside the model, so they hold even if the model is fooled or
+prompt-injected. Full auditable list: [`docs/04-constitution.md`](./docs/04-constitution.md).
+
+1. **Privacy by data origin.** Your data → local model + local embeddings, always. The router fails
+   closed; `LOCAL_ONLY=true` forces everything local (the default).
+2. **Never send email.** Gmail scope is read + *compose drafts only*. Mochi drafts; you press send.
+3. **Every external write is human-gated** via a LangGraph `interrupt()` → Telegram Approve/Reject.
+4. **Untrusted content is data, never instructions** — parsed by a quarantined, tool-free reader
+   that emits only validated structured data (the dual-LLM / CaMeL pattern).
+5. **Secrets never leave the machine and never get committed** (`.env` is git-ignored; the code
+   sandbox can't see `data/` or tokens).
+
+## Current status
+
+Built in phases; each has a build doc in [`docs/`](./docs).
+
+- **P1 — memory core:** durable Postgres memory, local embeddings + hybrid recall, the tool-calling loop.
+- **P2 — Google + approval gate:** Calendar/Gmail (least-privilege), human-in-the-loop draft approval.
+- **P3A — proactive reminders:** natural-language reminders (one-off/recurring), pushed with quiet
+  hours + Done/Snooze, mirrored to Google Calendar.
+- **P3B — safe email reading:** the quarantined reader + a general signal pipeline (return / bill /
+  appointment / deadline / delivery) that asks before acting.
+- **P4A — sensitivity router + de-identified hosted consult** (`/ask`): raw data stays local; only
+  scrubbed, audited derivatives can reach an opt-in hosted model.
+- **P4B — the builder:** generates web apps + PDFs/Word docs, runs them in a sandbox, serves static
+  sites on your LAN. Solved the tool-count wall with dynamic per-turn tool binding.
+- **P6 — daily briefing:** one deterministic (no-LLM) morning digest of today's calendar, reminders,
+  and goals — pushed each morning and on demand via `/briefing`.
+- **P7 — read email on demand:** "what did the landlord's email say?" → a safe summary via the same
+  quarantined reader (raw body never reaches the main agent).
+
+### Roadmap / next up
+
+Web search (the biggest gap — Mochi can't look anything up online yet) · Google Drive · deeper
+long-term memory & preferences · voice-message transcription · running on a Mac mini with a larger
+local model (the single biggest quality lever). Full roadmap in
+[`docs/00-plan.md`](./docs/00-plan.md).
 
 ## Quickstart
 
-Full setup (Ollama, Postgres, Telegram bot) is in [`docs/03-phase0-build.md`](./docs/03-phase0-build.md).
-Once prerequisites are in place:
+Prerequisites (full setup in [`docs/03-phase0-build.md`](./docs/03-phase0-build.md)): Ollama running
+with `qwen2.5:7b` + `nomic-embed-text` pulled, Postgres with a `personal_agent` DB and the `vector`
+extension, and a Telegram bot token.
 
 ```bash
-cp .env.example .env      # then fill in TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
+cp .env.example .env      # fill in TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID (+ Google creds for P2+)
 uv sync                   # install dependencies
 uv run python -m app.main
 ```
 
-Message your bot on Telegram — you should get a reply generated entirely on your Mac.
+Message your bot on Telegram — the reply is generated entirely on your own machine.
 
-## Safety in one line
+## Repository layout
 
-The agent proposes; you dispose. Private data stays local, Gmail can draft but never send,
-and every real-world action needs your explicit approval. Details in `CLAUDE.md`.
+```
+app/
+  agent/        LangGraph graph, persona, tools, router, quarantined reader, tool selection
+  channels/     Telegram adapter (+ a Channel interface for future transports)
+  integrations/ Google auth / Calendar / Gmail
+  memory/       SQLModel models, embeddings, hybrid recall, fact extraction
+  proactive/    reminders, email-signal scanning, the daily briefing, the job scheduler
+  builder/      sandboxed web-app + document generation and LAN serving
+docs/           the roadmap, primers, and a build guide per phase (single source of truth)
+scripts/        verify_*.py — real-model checks that drive the actual agent end-to-end
+tests/          offline pytest suite (mocks the model + Google)
+CLAUDE.md       orientation + the non-negotiable safety rules — read this first
+```
+
+## Testing philosophy
+
+Two layers, because they catch different things:
+
+- **`tests/`** — a fast offline `pytest` suite that mocks the model + Google. Proves the plumbing.
+- **`scripts/verify_*.py`** — real-model checks that drive the *actual* agent (`build_agent()`) and
+  the real 7B end-to-end, asserting *behavior* (the right tool fires, no raw-JSON dumps, injection
+  is refused). The local model is stochastic, so these use soft floors and are re-run to rule out
+  variance. `scripts/verify_all.sh` runs the whole regression sequentially.
+
+```bash
+uv run pytest tests/ -q
+uv run ruff check app/ tests/ scripts/
+./scripts/verify_all.sh      # full real-model regression (needs Ollama + a scratch DB)
+```
+
+## License
+
+Personal project, shared for reference. No license granted for reuse at this time.
