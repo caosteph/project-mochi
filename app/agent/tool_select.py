@@ -10,7 +10,9 @@ core). See docs/10-phase4b-build.md.
 
 import logging
 import math
+import time
 
+from app.config import settings
 from app.memory.embeddings import embed_local
 
 log = logging.getLogger(__name__)
@@ -55,6 +57,19 @@ def _tool_vec(tool) -> list[float]:
     return _tool_vecs[tool.name]
 
 
+def warm_tool_vectors(all_tools: list) -> None:
+    """Pre-compute the per-tool embedding cache at startup. Measured: the FIRST select_tools
+    call costs ~1.1s (it embeds every tool description) vs ~55ms once warm — so without this,
+    Stephanie's first message after every restart pays a full extra second. Pure cache warming:
+    identical values, computed earlier. Best-effort; never raises."""
+    for tool in all_tools:
+        try:
+            _tool_vec(tool)
+        except Exception:
+            log.warning("tool-vector warm failed; first turn will pay the cold cost", exc_info=True)
+            return
+
+
 def select_tools(message: str, all_tools: list, *, k: int = 6, cap: int = 10) -> list:
     """Pick a small relevant tool subset for this message: CORE + embedding-nearest top-k +
     keyword matches, deduped (CORE first, then by relevance) and capped. Fails safe: if
@@ -63,6 +78,7 @@ def select_tools(message: str, all_tools: list, *, k: int = 6, cap: int = 10) ->
     ordered: list[str] = [n for n in CORE if n in by_name]
 
     # Embedding-nearest (the precise relevance signal) — prioritized after CORE.
+    t0 = time.perf_counter()
     try:
         if message.strip():
             mv = embed_local(message)
@@ -70,6 +86,8 @@ def select_tools(message: str, all_tools: list, *, k: int = 6, cap: int = 10) ->
             ordered += [name for _, name in ranked[:k]]
     except Exception:  # Ollama hiccup → fall back to CORE + keywords, never all tools
         log.warning("tool-select embedding failed; using keyword routing only", exc_info=True)
+    if settings.latency_log:
+        log.info("latency: tool_select embedding %.0fms", (time.perf_counter() - t0) * 1000)
 
     # Keyword boosts fill any remaining slots.
     low = message.lower()

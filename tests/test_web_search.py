@@ -28,6 +28,13 @@ def _results(n=2):
     return [SearchResult(title=f"T{i}", url=f"https://ex/{i}", snippet=f"snippet {i}") for i in range(n)]
 
 
+@pytest.fixture(autouse=True)
+def _use_test_engine(engine, monkeypatch):
+    """Point the tool's audit writes (get_engine) at the test DB — makes the suite hermetic
+    w.r.t. DATABASE_URL and guarantees a WebSearch row is never written to a real database."""
+    monkeypatch.setattr(web_tools, "get_engine", lambda: engine)
+
+
 @pytest.fixture
 def enabled(monkeypatch):
     # duckduckgo → available() is True without a key; a term to prove name-scrubbing works.

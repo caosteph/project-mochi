@@ -1,5 +1,8 @@
 # Mochi — a private, local-first personal AI agent
 
+[![Tests](https://github.com/caosteph/project-mochi/actions/workflows/tests.yml/badge.svg)](https://github.com/caosteph/project-mochi/actions/workflows/tests.yml)
+[![Ruff](https://github.com/caosteph/project-mochi/actions/workflows/ruff.yml/badge.svg)](https://github.com/caosteph/project-mochi/actions/workflows/ruff.yml)
+
 Mochi is a personal AI assistant you message from your phone like a friend. It remembers your
 life, watches your inbox and calendar, sets reminders, builds little web apps and documents — and
 it does this **proactively** (its flagship trick: notice a purchase in your email and remind you to
@@ -112,28 +115,18 @@ Built in phases; each has a build doc in [`docs/`](./docs).
 
 ## Roadmap & future work
 
-The detailed phase plan lives in [`docs/00-plan.md`](./docs/00-plan.md); this is the consolidated
-list of what's next, grouped.
+The full, self-contained list (problem → why → effort) is **[`docs/14-future-work.md`](./docs/14-future-work.md)**;
+the detailed phase plan is [`docs/00-plan.md`](./docs/00-plan.md). Highlights:
 
-**More capabilities**
-- **Google Drive** (read files — receipts, docs) via the quarantined reader.
-- **Deeper long-term memory & preferences** — a richer profile so Mochi knows you better over time.
-- **Voice-message transcription** · **quick lists/notes**.
-- **Email in the daily briefing** — once the Phase 3B scanner is proven quiet and re-enabled.
-- **Deep-read a web result** — fetch a full result page through the quarantined reader (today's web
-  search is snippets only).
-
-**Search**
-- Add/switch providers — **SearXNG** (self-hosted, fully local routing) and **Brave**; smarter
-  result ranking. (Switching providers is already a one-line config change.)
-
-**Safety & permissions**
-- A **generalizable per-action approval layer** — a config-driven policy of *which* actions require
-  your Approve/Reject (today: drafts + web search; extend to calendar-event writes, etc.).
-
-**Platform & quality**
-- Move to a **Mac mini running a larger local model** — the single biggest quality lever. Most rough
-  edges (tool-firing reliability, the occasional derail) are the 7B's limits, not the design's.
+- **⭐ Raise the local model's context window** — it currently runs at 4,096 tokens while the persona
+  alone is ~3,600, so turns likely truncate the system prompt (a probable root cause of tool-firing
+  wobble). A cheap `OLLAMA_CONTEXT_LENGTH` experiment, traded against memory on 16GB.
+- **Mac mini + a larger local model** — the single biggest quality lever (reliability, headroom).
+- **Reliability/ops:** process supervision (launchd), checkpoint pruning, Alembic migrations, a
+  Docker sandbox.
+- **Capabilities:** Google Drive, deeper memory, voice notes, email-in-briefing, a generalizable
+  per-action approval layer.
+- **Search:** SearXNG (fully-local) / Brave providers behind the existing one-line-swap seam.
 
 ## Quickstart
 

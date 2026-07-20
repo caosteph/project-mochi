@@ -1,3 +1,4 @@
+import os
 import socket
 
 import pytest
@@ -5,7 +6,11 @@ from sqlalchemy import text
 
 from app.memory.db import get_engine, init_db
 
-TEST_DATABASE_URL = "postgresql://localhost/personal_agent_test"
+# Local default; CI overrides via TEST_DATABASE_URL (its pgvector container only has the
+# `postgres` role/port). The "test" guard makes it impossible to point the suite — which
+# TRUNCATEs tables — at a non-test database.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql://localhost/personal_agent_test")
+assert "test" in TEST_DATABASE_URL, f"refusing to run tests against a non-test DB: {TEST_DATABASE_URL!r}"
 
 _ALLOWED_HOSTS = {"127.0.0.1", "::1", "localhost"}
 _orig_connect = socket.socket.connect

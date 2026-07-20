@@ -26,6 +26,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.3.0",
+    "pytest-cov>=5.0.0",
     "ruff>=0.7.0",
 ]
 
@@ -40,3 +41,9 @@ target-version = "py312"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # app/ is importable without PYTHONPATH (project is not installed; package = false)
+markers = [
+    # Tests that need a real local embedding model (Ollama + nomic-embed) — deselected in
+    # CI with `-m "not needs_ollama"`; they run in the local gate. See .github/workflows/tests.yml.
+    "needs_ollama: requires a running Ollama with the embedding model (real semantic vectors)",
+]

@@ -271,16 +271,7 @@ per-tool error handling. *Milestone:* it runs unattended for weeks and you can d
 
 ## Consolidated future work (living list)
 
-The near-term backlog, consolidated (mirrors the README's "Roadmap & future work"). Updated as work
-ships; the phase sections above are the original detailed plan.
-
-- **Capabilities:** Google Drive (read, quarantined) · deeper long-term memory & preferences ·
-  voice-message transcription · quick lists/notes · email in the daily briefing (once the P3B scanner
-  is proven quiet) · deep-read a web result page via the quarantined reader (P8 is snippets-only).
-- **Search:** add/switch providers — SearXNG (self-hosted, full-local routing), Brave — and smarter
-  result ranking. Switching providers is already a one-line config change (`WEB_SEARCH_PROVIDER`).
-- **Safety & permissions:** a **generalizable per-action approval layer** — a config-driven policy of
-  which actions require Approve/Reject (today: drafts + web search via `_render_proposal`; extend to
-  calendar-event writes, etc.).
-- **Platform & quality:** move to a **Mac mini + a larger local model** — the single biggest quality
-  lever (fixes 7B tool-firing fragility and the occasional derail at the root).
+The near-term backlog now lives in its own self-contained doc —
+**[`14-future-work.md`](./14-future-work.md)** (problem → why → effort, grouped: latency & the 7B
+ceiling, reliability/ops, security, capabilities, search, testing). The phase sections above are the
+original detailed plan.

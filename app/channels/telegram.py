@@ -552,6 +552,9 @@ class TelegramChannel(Channel):
                 except asyncio.TimeoutError:
                     pass
 
+        t_start = loop.time()
+        ttft = None  # time-to-first-token
+        n_tool_steps = 0
         typing = asyncio.create_task(keep_typing())
         if announce_thinking:
             await set_status("💭 Thinking…")
@@ -587,6 +590,7 @@ class TelegramChannel(Channel):
                         msg = agent_payload["messages"][-1]
                         tool_names = [tc["name"] for tc in (getattr(msg, "tool_calls", None) or [])]
                         if tool_names:
+                            n_tool_steps += 1
                             await set_status(status_for_tool(tool_names[-1]))
                         elif msg.content:
                             reply = msg.content  # authoritative final text
@@ -595,6 +599,8 @@ class TelegramChannel(Channel):
                 # mode == "messages": (message_chunk, metadata) — live tokens.
                 chunk, meta = payload
                 if meta.get("langgraph_node") == "agent" and getattr(chunk, "content", None):
+                    if ttft is None:
+                        ttft = loop.time() - t_start
                     reply_buf += chunk.content
                     now = loop.time()
                     if now - last_edit >= 1.0:  # throttle Telegram edits
@@ -603,6 +609,10 @@ class TelegramChannel(Channel):
         finally:
             stop.set()
             await typing
+        if settings.latency_log:
+            ttft_s = f"{ttft:.1f}s" if ttft is not None else "n/a"
+            log.info("latency: turn total=%.1fs ttft=%s tool_steps=%d",
+                     loop.time() - t_start, ttft_s, n_tool_steps)
 
         # Make sure the full, authoritative reply is displayed, then upgrade it in place to
         # rendered Markdown (bold/bullets/code, tables→monospace). Streaming stays plain

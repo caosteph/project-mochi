@@ -8,6 +8,11 @@ from app.memory import store
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "memory_recall.json").read_text())
 
+# Needs a real local embedding model — recall accuracy is a *semantic* property, so a stub
+# vector would make these assertions meaningless. Deselected in CI (`-m "not needs_ollama"`);
+# runs in the local gate where Ollama is up.
+pytestmark = pytest.mark.needs_ollama
+
 
 @pytest.fixture
 def seeded_session(engine):

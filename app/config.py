@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     # this-many seconds keeps it warm; 0 disables. Must be < Ollama's idle timeout.
     keep_warm_interval_seconds: int = 240
 
+    # Latency instrumentation (Phase 8.1) — when true, logs per-turn timing (tool-select
+    # embedding ms, time-to-first-token, tool round-trips, total). Off by default; flip it on
+    # (LATENCY_LOG=true) to measure before optimizing. See docs/14-future-work.md.
+    latency_log: bool = False
+
     # Proactive reminders (Phase 3A).
     proactivity_enabled: bool = True       # runtime kill-switch seed (toggle via /pause /resume)
     reminder_tick_interval_seconds: int = 60

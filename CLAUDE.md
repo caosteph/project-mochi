@@ -25,6 +25,7 @@ The full plan, learning docs, and per-phase build guides live in this repo's **`
 - `docs/11-phase6-build.md` — daily briefing (deterministic morning digest) + testing hardening.
 - `docs/12-read-email-build.md` — read a specific email on demand (quarantined summarizer + `read_email`).
 - `docs/13-web-search-build.md` — web search (scrubbed + approved + audited; pluggable Tavily/DuckDuckGo).
+- `docs/14-future-work.md` — the self-contained future-work list (problem → why → effort).
 
 ## How to work here (Stephanie's standing guidance)
 
@@ -37,7 +38,9 @@ Explicit, always-on expectations for any AI session in this repo — read this e
   regress silently.** `verify_scenarios` is the behavioral gate (right tool fires + no JSON dump). Never
   report a model metric from a single run (re-run to rule out variance; the 7B is stochastic).
   `scripts/verify_all.sh` runs the whole regression **sequentially** (Ollama serializes — parallel runs
-  give misleading results).
+  give misleading results). To attribute a suspected regression, use **`scripts/verify_firing.py
+  --baseline <tools>`** — it stashes your changes, measures HEAD in a fresh process, restores, and
+  prints a HEAD-vs-working firing diff (the automated version of the manual bisection).
 - **Definition of done:** offline `pytest` + relevant `verify_*` green, no regressions, docs/CLAUDE.md
   updated — *then* it's done, not before.
 - **Problem-solve through obstacles.** When something blocks (e.g. the 7B tool-count wall), diagnose the

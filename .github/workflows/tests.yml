@@ -1,0 +1,49 @@
+name: Tests
+
+# Runs the offline pytest suite against a real Postgres+pgvector (the schema uses vector
+# columns). It is HERMETIC: no test invokes the local 7B, so no Ollama here — the two
+# embedding-semantic tests are marked `needs_ollama` and deselected. Model-behavior checks
+# (scripts/verify_*.py) stay in the local gate; a self-hosted Mac-mini runner can run the
+# full scripts/verify_all.sh later. See CLAUDE.md.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: personal_agent_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # conftest reads TEST_DATABASE_URL (its "test" guard still blocks non-test DBs).
+      TEST_DATABASE_URL: postgresql://postgres@localhost:5432/personal_agent_test
+      # Belt-and-suspenders: any app get_engine() path points at the same test DB.
+      DATABASE_URL: postgresql://postgres@localhost:5432/personal_agent_test
+      TELEGRAM_BOT_TOKEN: ci_placeholder
+      TELEGRAM_CHAT_ID: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync
+      - name: Run hermetic tests
+        run: uv run pytest tests/ -m "not needs_ollama" -q --cov=app --cov-report=term-missing

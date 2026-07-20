@@ -35,14 +35,33 @@ def warm_now() -> None:
         log.warning("Keep-warm ping failed: %s", exc)
 
 
+def _warm_tool_vectors() -> None:
+    """Pre-compute the tool-selection embedding cache (measured ~1.1s cold vs ~55ms warm), so
+    the first message after a restart doesn't pay it. Imported lazily to avoid an import cycle;
+    best-effort — never raises."""
+    try:
+        from app.agent.tool_select import warm_tool_vectors
+        from app.agent.tools import ALL_TOOLS
+
+        warm_tool_vectors(ALL_TOOLS)
+        log.info("Tool-vector cache warmed (%d tools).", len(ALL_TOOLS))
+    except Exception as exc:
+        log.warning("Tool-vector warm failed: %s", exc)
+
+
 def start_keep_warm() -> None:
-    """Warm the model once now, then keep it warm on a daemon thread."""
+    """Warm the model once now, then keep it warm on a daemon thread. Also warms the
+    tool-selection embedding cache once, off the startup path."""
     if settings.keep_warm_interval_seconds <= 0:
         return
 
     def loop() -> None:
+        first = True
         while True:
             warm_now()
+            if first:  # after the model is resident, so the embed call isn't queued behind a load
+                _warm_tool_vectors()
+                first = False
             time.sleep(settings.keep_warm_interval_seconds)
 
     threading.Thread(target=loop, daemon=True).start()
