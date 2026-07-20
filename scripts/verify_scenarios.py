@@ -80,6 +80,8 @@ def main() -> None:
     check("calendar ask → calendar_list_events", c >= 1, f"{c}/2")
     b = rate(agent, ["build me a landing page for my bakery", "make a website about my cat"], "build_web_app")
     check("build ask → build_web_app", b >= 1, f"{b}/2")
+    e = rate(agent, ["what did the landlord's email say?", "what does the email from my doctor say?"], "read_email")
+    check("read-content ask → read_email", e >= 1, f"{e}/2")
 
     # 2. Coherence (the flagship): the ambiguous prompt that broke ("setting what
     #    reminder?") must produce PLAIN PROSE — never a raw JSON dump — and stay on-topic.

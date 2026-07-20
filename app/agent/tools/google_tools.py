@@ -12,7 +12,7 @@ import dateparser
 from langchain_core.tools import tool
 from tzlocal import get_localzone
 
-from app.agent import rate_limit
+from app.agent import email_read, rate_limit
 from app.agent.confirm import require_approval
 from app.integrations import google_calendar, google_gmail
 
@@ -103,13 +103,30 @@ def calendar_list_events(when: str = "today") -> str:
 
 @tool
 def gmail_list_recent(max_results: int = 10) -> str:
-    """List recent emails as metadata only — sender, subject, date. You cannot read
-    message bodies yet (that arrives in a later phase); use this for triage like
-    'any unread from my landlord?'."""
+    """List recent emails as metadata only — sender, subject, date. Use this for TRIAGE
+    ('any unread from my landlord?', 'what's in my inbox?'). To read what a specific email
+    actually SAYS, use `read_email` instead."""
     msgs = google_gmail.list_recent_metadata(max_results=max_results)
     if not msgs:
         return "No recent messages found."
     return frame_untrusted("inbox", "\n".join(f"- {m['date']} | {m['from']} | {m['subject']}" for m in msgs))
+
+
+@tool
+def read_email(query: str) -> str:
+    """Read what ONE specific email SAYS — its contents, gist, or details. Use this for
+    "what did X's email say", "read me the email from X", "summarize the email about Y",
+    or any request for what's *inside* an email (NOT just who it's from — that's
+    gmail_list_recent). Pass a short search phrase: a sender, subject keyword, or topic
+    (e.g. "landlord", "REI return", "Chase statement"). I find the newest matching
+    message, have a SEPARATE quarantined reader summarize it, and tell you what it says.
+    I never expose the raw body; you only ever see a safe summary."""
+    summary, n = email_read.read_email_summary(query)
+    if n == 0:
+        return f"I couldn't find an email matching “{query}”."
+    if summary is None:
+        return "I found a matching email, but it has no readable text (probably just an attachment or image)."
+    return frame_untrusted("email", email_read.format_summary(summary, n))
 
 
 # Recipients that mean "Stephanie herself" — resolved to her own address so
@@ -138,4 +155,4 @@ def create_draft(to: str, subject: str, body: str) -> str:
     )
 
 
-GOOGLE_TOOLS = [calendar_list_events, gmail_list_recent, create_draft]
+GOOGLE_TOOLS = [calendar_list_events, gmail_list_recent, read_email, create_draft]

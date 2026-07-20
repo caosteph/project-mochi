@@ -23,6 +23,7 @@ The full plan, learning docs, and per-phase build guides live in this repo's **`
 - `docs/09-phase4a-build.md` — sensitivity router + de-identified hosted delegation.
 - `docs/10-phase4b-build.md` — the builder: sandboxed web-app + document generation.
 - `docs/11-phase6-build.md` — daily briefing (deterministic morning digest) + testing hardening.
+- `docs/12-read-email-build.md` — read a specific email on demand (quarantined summarizer + `read_email`).
 
 ## How to work here (Stephanie's standing guidance)
 
@@ -48,6 +49,20 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 *must* hold, it belongs in code, per the two-tier model below.)
 
 ## Current status
+
+**Phase 7 — read a specific email on demand.** Mochi can now read what a *specific* email **says**,
+on demand ("what did the landlord's email say?" → a safe summary), reusing the Phase 3B dual-LLM
+boundary. New `read_email` tool (`app/agent/tools/google_tools.py`) → `app/agent/email_read.py`
+orchestrator → a new **quarantined summarizer** (`quarantine.summarize_email` → `EmailSummary`, same
+tool-free/persona-free local `reader_llm`); the tool returns **only** the validated, length-capped
+summary — the privileged agent never ingests the raw body (rule #4 holds). No new OAuth scope
+(`gmail.readonly` already reads bodies), no approval gate (read-only). Fires reliably on the question
+forms ("what did/does X's email say", "summarize the … email"); the bare imperative "read me the email
+from X about Y" derails the 7B (documented soft-tier limit). **Persona lesson, measured again and
+sharper:** the read_email tool fires 4/4 on its *tool description alone* — a first, net-**additive**
+persona edit (routing clause + worked example) silently dropped `add_reminder`/`create_draft` on
+unrelated prompts 4/4→0/4; the fix was a **net-neutral, correctness-only** persona edit (verified by
+HEAD-vs-mine 4-sample bisection). See `docs/12-read-email-build.md`.
 
 **Phase 6 — the daily briefing (+ testing hardening).** Mochi now sends a **daily morning briefing**:
 one *deterministic* digest (no LLM → it can't dump JSON or wander) of today's calendar, reminders due

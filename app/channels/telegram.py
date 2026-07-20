@@ -57,6 +57,7 @@ log = logging.getLogger(__name__)
 _TOOL_STATUS = {
     "calendar_list_events": "📅 Checking your calendar…",
     "gmail_list_recent": "📬 Looking through your inbox…",
+    "read_email": "📖 Reading that email…",
     "create_draft": "✉️ Drafting that email…",
     "recall": "🧠 Checking what I remember…",
     "remember_fact": "🧠 Noting that down…",

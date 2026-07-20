@@ -111,5 +111,10 @@ class Settings(BaseSettings):
     signal_default_return_days: int = 30        # fallback return window when a `return` states no date
     signal_require_due_date: bool = True        # only surface signals with a concrete date (drops vague/FYI noise)
 
+    # On-demand email reading (Phase 7) — "what did the X email say?" searches the inbox,
+    # summarizes the newest match behind the SAME quarantined reader (body never reaches
+    # the privileged agent). Only the newest match is read; this bounds how many are searched.
+    email_read_max_candidates: int = 5
+
 
 settings = Settings()  # import this everywhere: `from app.config import settings`
