@@ -38,9 +38,9 @@ jobs:
       TELEGRAM_BOT_TOKEN: ci_placeholder
       TELEGRAM_CHAT_ID: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
       - name: Install dependencies
