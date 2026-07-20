@@ -41,6 +41,17 @@ class Settings(BaseSettings):
     redact_terms: str = ""
     redact_max_hits: int = 4
 
+    # Web search (Phase 8) — the local model can look things up online. Only a
+    # PII-SCRUBBED query leaves (via app/agent/sanitize.py); results are synthesized on
+    # the LOCAL model; every query is audited (/sent). Independent of `local_only` (that
+    # governs the hosted LLM for personal data; a scrubbed generic query is a smaller,
+    # separate externality — see docs/04-constitution.md). Provider is pluggable:
+    # "tavily" (free key, best for agents) or "duckduckgo" (no key, no signup).
+    web_search_enabled: bool = True
+    web_search_provider: str = "tavily"     # "tavily" | "duckduckgo"
+    web_search_api_key: str | None = None   # required only for tavily
+    web_search_max_results: int = 5
+
     # Embeddings — always local; deliberately no separate/hosted embedding URL setting.
     embedding_model: str = "nomic-embed-text"
     embedding_dims: int = 768

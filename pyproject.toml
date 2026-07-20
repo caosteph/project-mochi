@@ -20,6 +20,7 @@ dependencies = [
     "telegramify-markdown>=1.2.0",
     "reportlab>=5.0.0",
     "python-docx>=1.2.0",
+    "ddgs>=6.0",
 ]
 
 [dependency-groups]

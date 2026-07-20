@@ -82,6 +82,8 @@ def main() -> None:
     check("build ask → build_web_app", b >= 1, f"{b}/2")
     e = rate(agent, ["what did the landlord's email say?", "what does the email from my doctor say?"], "read_email")
     check("read-content ask → read_email", e >= 1, f"{e}/2")
+    w = rate(agent, ["what's the weather in Paris right now?", "is Trader Joe's open on Sundays?"], "web_search")
+    check("outside-world ask → web_search", w >= 1, f"{w}/2")
 
     # 2. Coherence (the flagship): the ambiguous prompt that broke ("setting what
     #    reminder?") must produce PLAIN PROSE — never a raw JSON dump — and stay on-topic.

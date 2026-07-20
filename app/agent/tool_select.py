@@ -33,6 +33,7 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
     "add_goal": ("goal", "i want to"),
     "add_task": ("add a task", "to-do", "todo", "to do list"),
     "consult_expert": ("explain", "how do i", "how does", "help me understand", "write code", "debug", "algorithm"),
+    "web_search": ("search", "look up", "google", "weather", "how much is", "price of", "who won", "who is", "what is a", "latest", "right now", "near me", "open on", "hours", "what time does", "current"),
     "serve_project": ("make it public", "make it live", "serve", "share the site"),
     "list_projects": ("my projects", "what have you built", "list projects"),
 }

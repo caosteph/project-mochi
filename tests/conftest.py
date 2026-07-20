@@ -45,6 +45,6 @@ def clean_tables(engine):
     with engine.begin() as conn:
         conn.execute(text(
             "TRUNCATE fact, goal, task, reminder, event, messagelog, "
-            "purchase, emailsignal, processedemail, ingeststate, hostedconsult "
+            "purchase, emailsignal, processedemail, ingeststate, hostedconsult, websearch "
             "RESTART IDENTITY CASCADE"
         ))

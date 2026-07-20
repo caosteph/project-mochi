@@ -24,6 +24,7 @@ The full plan, learning docs, and per-phase build guides live in this repo's **`
 - `docs/10-phase4b-build.md` — the builder: sandboxed web-app + document generation.
 - `docs/11-phase6-build.md` — daily briefing (deterministic morning digest) + testing hardening.
 - `docs/12-read-email-build.md` — read a specific email on demand (quarantined summarizer + `read_email`).
+- `docs/13-web-search-build.md` — web search (scrubbed + approved + audited; pluggable Tavily/DuckDuckGo).
 
 ## How to work here (Stephanie's standing guidance)
 
@@ -49,6 +50,20 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 *must* hold, it belongs in code, per the two-tier model below.)
 
 ## Current status
+
+**Phase 8 — web search (scrubbed + approved + audited).** Mochi can now **look things up online**
+(weather, prices, hours, "is X open", news). New `web_search` tool (`app/agent/tools/web_tools.py`)
+reuses the `consult_expert` privacy spine: `sanitize.redact` scrubs the query, `is_too_personal`
+refuses PII-dense ones, **`require_approval("web_search", …)` gates it** (Stephanie approves the
+scrubbed query before it leaves — the "ask permission when doing stuff" she asked for), `rate_limit`
+caps it, a `WebSearch` audit row logs it (`/sent`), and results are `frame_untrusted` + synthesized
+**locally**. Provider is pluggable (`app/integrations/web_search.py`): **Tavily** (default, free key)
+or **DuckDuckGo** (no key, `ddgs`) — switching is one config value (`WEB_SEARCH_PROVIDER`).
+Deliberately **independent of `LOCAL_ONLY`** (scoped decision, `docs/04-constitution.md`): only a
+scrubbed generic query leaves. The Telegram approval renderer is now per-action (`_render_proposal`)
+— the seed of a future generalizable approval layer. **No persona edit** (no false "can't search"
+claim existed) — `web_search` fires from its description + keywords, confirmed by a HEAD-vs-mine
+tool-firing bisection (add_reminder/create_draft unregressed). See `docs/13-web-search-build.md`.
 
 **Phase 7 — read a specific email on demand.** Mochi can now read what a *specific* email **says**,
 on demand ("what did the landlord's email say?" → a safe summary), reusing the Phase 3B dual-LLM

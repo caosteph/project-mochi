@@ -9,9 +9,9 @@ The point that shapes every design decision: **it runs on your own machine, on o
 and your private data never leaves.** No personal data is sent to a cloud LLM. Mochi *proposes*;
 you *dispose* — every action that touches the outside world waits for your explicit approval.
 
-> **Status:** actively built, phase by phase. Currently at **Phase 6/7** — durable memory, Google
-> Calendar/Gmail, proactive reminders, safe email reading, a daily briefing, and a sandboxed
-> app/document builder are all working. See [Current status](#current-status).
+> **Status:** actively built, phase by phase. Currently at **Phase 8** — durable memory, Google
+> Calendar/Gmail, proactive reminders, safe email reading, a daily briefing, web search, and a
+> sandboxed app/document builder are all working. See [Current status](#current-status).
 
 > This is a personal project built in the open as a learning exercise. It is **not** a packaged
 > product — expect rough edges, and read [`CLAUDE.md`](./CLAUDE.md) + [`docs/`](./docs) before
@@ -106,13 +106,34 @@ Built in phases; each has a build doc in [`docs/`](./docs).
   and goals — pushed each morning and on demand via `/briefing`.
 - **P7 — read email on demand:** "what did the landlord's email say?" → a safe summary via the same
   quarantined reader (raw body never reaches the main agent).
+- **P8 — web search:** "what's the weather / is X open / current price of Y" → the local model looks
+  it up online. Only a **PII-scrubbed** query leaves (you approve it first), results are synthesized
+  locally, every query is logged to `/sent`. Pluggable provider (Tavily or keyless DuckDuckGo).
 
-### Roadmap / next up
+## Roadmap & future work
 
-Web search (the biggest gap — Mochi can't look anything up online yet) · Google Drive · deeper
-long-term memory & preferences · voice-message transcription · running on a Mac mini with a larger
-local model (the single biggest quality lever). Full roadmap in
-[`docs/00-plan.md`](./docs/00-plan.md).
+The detailed phase plan lives in [`docs/00-plan.md`](./docs/00-plan.md); this is the consolidated
+list of what's next, grouped.
+
+**More capabilities**
+- **Google Drive** (read files — receipts, docs) via the quarantined reader.
+- **Deeper long-term memory & preferences** — a richer profile so Mochi knows you better over time.
+- **Voice-message transcription** · **quick lists/notes**.
+- **Email in the daily briefing** — once the Phase 3B scanner is proven quiet and re-enabled.
+- **Deep-read a web result** — fetch a full result page through the quarantined reader (today's web
+  search is snippets only).
+
+**Search**
+- Add/switch providers — **SearXNG** (self-hosted, fully local routing) and **Brave**; smarter
+  result ranking. (Switching providers is already a one-line config change.)
+
+**Safety & permissions**
+- A **generalizable per-action approval layer** — a config-driven policy of *which* actions require
+  your Approve/Reject (today: drafts + web search; extend to calendar-event writes, etc.).
+
+**Platform & quality**
+- Move to a **Mac mini running a larger local model** — the single biggest quality lever. Most rough
+  edges (tool-firing reliability, the occasional derail) are the 7B's limits, not the design's.
 
 ## Quickstart
 

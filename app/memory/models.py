@@ -211,6 +211,17 @@ class HostedConsult(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
 
 
+class WebSearch(SQLModel, table=True):
+    """Audit log of every web-search query that left the machine (Phase 8) — the exact
+    (already-scrubbed) query, how many redactions the scrubber made, and how many results
+    came back. Same transparency principle as HostedConsult: reviewable via /sent."""
+    id: int | None = Field(default=None, primary_key=True)
+    query: str
+    n_redactions: int = 0
+    n_results: int = 0
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+
+
 class MessageLog(SQLModel, table=True):
     """Populated by deterministic code (a call from channels/telegram.py after
     each turn), not by an LLM tool — separate from the checkpointer's internal

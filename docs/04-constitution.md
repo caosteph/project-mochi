@@ -32,9 +32,9 @@ Design corollaries:
 | Rule | Tier | Enforced where | Status |
 |------|------|----------------|--------|
 | Only respond to the whitelisted `chat_id` | code | `channels/telegram.py` whitelist | ✅ done (P0) |
-| Private data (Gmail/Cal/Drive/memory) → local model + local embeddings only | code | deterministic sensitivity router (`app/agent/router.py`): SENSITIVE→local always, fails closed, `LOCAL_ONLY` overrides; embeddings always local. **Scoped (P4A, with Stephanie's say-so):** only *de-identified, PII-scrubbed, audited* derivatives may reach an opt-in **free** hosted model (`consult_expert`/`/ask`) — raw personal data never leaves; see the scoped-modification note below | ◐ done (P4A, router live); embeddings ✅ done (P1, `app/memory/embeddings.py`) |
+| Private data (Gmail/Cal/Drive/memory) → local model + local embeddings only | code | deterministic sensitivity router (`app/agent/router.py`): SENSITIVE→local always, fails closed, `LOCAL_ONLY` overrides; embeddings always local. **Scoped (P4A, with Stephanie's say-so):** only *de-identified, PII-scrubbed, audited* derivatives may reach an opt-in **free** hosted model (`consult_expert`/`/ask`) or search provider (a scrubbed query for `web_search`, P8) — raw personal data never leaves; see the scoped-modification notes below | ◐ done (P4A router + P8 web search live); embeddings ✅ done (P1, `app/memory/embeddings.py`) |
 | Never send email — draft only | code | Gmail OAuth scope (`readonly` + `compose`, no `gmail.send` — `app/integrations/google_auth.py`); no send tool registered | ✅ done (P2) |
-| Confirm before any side-effectful / external action | code | LangGraph `interrupt()` gate — `app/agent/confirm.py`, wired through Telegram Approve/Reject | ✅ done (P2, gating draft writes). **Scoped exception (P3A):** mirroring a reminder into an event on *her own* calendar is create-only, background (no `interrupt()` applies), and not third-party/destructive/outbound — so it is opt-in via `calendar_mirror_enabled`, not per-event gated. A deliberate written scoping, not a silent weakening. |
+| Confirm before any side-effectful / external action | code | LangGraph `interrupt()` gate — `app/agent/confirm.py`, wired through Telegram Approve/Reject (renderer is per-action, `_render_proposal`) | ✅ done (P2, gating draft writes; P8 also gates `web_search` queries). **Scoped exception (P3A):** mirroring a reminder into an event on *her own* calendar is create-only, background (no `interrupt()` applies), and not third-party/destructive/outbound — so it is opt-in via `calendar_mirror_enabled`, not per-event gated. A deliberate written scoping, not a silent weakening. |
 | Untrusted content is data, not instructions | code + prompt | quarantined reader for email *bodies* (`app/agent/quarantine.py`: separate local model, **no tools**, no persona, `json_schema` structured output, length-capped fields, raw body never persisted/logged or seen by the privileged agent); plus P3A framing of subjects/senders + calendar titles (`frame_untrusted`) | ✅ done for email bodies (P3B); framing ◐ ongoing for other surfaces (web/Drive later) |
 | Proactive messages bounded (quiet hours, dedup, kill-switch) | code | `app/proactive/` — quiet-hours skip, status-based dedup (exactly-once), `/pause` `/resume` runtime flag; proactive sends only to the whitelisted chat | ✅ done (P3A) |
 | No destructive deletes / permission or setting changes | code | no such tools registered (note: `calendar.events` scope *can* delete, but only `create_event` is ever called, by the engine, not the agent) | ◐ ongoing |
@@ -65,6 +65,26 @@ table together). The scope:
 
 This is a written, auditable scoping — not a silent weakening. Reverting is a one-line switch
 (`HOSTED_ENABLED=false` / `LOCAL_ONLY=true`).
+
+## Scoped modification — web search (P8)
+
+Web search (`web_search`, `app/agent/tools/web_tools.py`) sends a query to a search provider. It
+follows the **same** scrub/refuse/audit spine as the hosted consult, plus a human approval:
+
+- **Still guaranteed in code:** only a **scrubbed** query leaves — `sanitize.redact` strips known
+  identifiers + PII before the provider call; a PII-dense query is refused and answered locally (fails
+  closed); the query is **approved by Stephanie** (`require_approval("web_search", …)`) before it runs,
+  so she previews exactly what leaves; every query is audited (`WebSearch` → `/sent`); results are
+  **untrusted web content**, framed as data and read/synthesized by the **local** model.
+- **Deliberately independent of `LOCAL_ONLY`:** that flag governs the hosted *LLM* for personal data.
+  A scrubbed, generic search query is a smaller, separate externality, so web search has its own opt-in
+  (`WEB_SEARCH_ENABLED` + a provider/key). This is the one place the "LOCAL_ONLY forces *everything*
+  local" phrasing is scoped — written here, with Stephanie's say-so, not silently.
+- **Best-effort, not guaranteed:** as with the hosted consult, a non-PII-but-sensitive phrase the
+  scrubber doesn't catch could reach the provider. Bounded by the scrubber + approval + audit; the
+  provider is pluggable (Tavily, or keyless DuckDuckGo, or a self-hosted SearXNG later for full-local).
+
+Reverting is a one-line switch (`WEB_SEARCH_ENABLED=false`).
 
 ## How to change a rule
 

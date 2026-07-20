@@ -47,7 +47,7 @@ from app.channels.base import Channel
 from app.config import settings
 from app.memory import extract, store
 from app.memory.db import get_engine
-from app.memory.models import EmailSignal, HostedConsult, SignalStatus
+from app.memory.models import EmailSignal, HostedConsult, SignalStatus, WebSearch
 from app.proactive import briefing, jobs, reminders
 
 log = logging.getLogger(__name__)
@@ -67,6 +67,7 @@ _TOOL_STATUS = {
     "list_reminders": "📋 Checking your reminders…",
     "cancel_reminder": "🗑️ Cancelling that reminder…",
     "consult_expert": "🧭 Consulting a bigger model…",
+    "web_search": "🔎 Searching the web…",
     "build_web_app": "🛠️ Building that…",
     "make_document": "📄 Putting that document together…",
     "serve_project": "🌐 Serving that up…",
@@ -80,6 +81,23 @@ _ASK_SYSTEM = "You are Mochi, Stephanie's helpful assistant. Answer the question
 
 def status_for_tool(name: str) -> str:
     return _TOOL_STATUS.get(name, "⏳ Working on it…")
+
+
+def _render_proposal(action: str, details: dict) -> str:
+    """The human-readable proposal shown with Approve/Reject, per action type. Each
+    side-effectful action that routes through the confirm gate gets a rendering here."""
+    if action == "web_search":
+        return (
+            "🔎 Search the web for (this scrubbed query will leave your machine):\n\n"
+            f"{details.get('query')}"
+        )
+    # Default / create_draft: a draft to approve (never auto-sent).
+    return (
+        "📝 Draft to approve (it will not be sent):\n\n"
+        f"To: {details.get('to')}\n"
+        f"Subject: {details.get('subject')}\n\n"
+        f"{details.get('body')}"
+    )
 
 
 _TG_LIMIT = 4096  # Telegram's max message length
@@ -342,23 +360,35 @@ class TelegramChannel(Channel):
 
         def fetch():
             with Session(get_engine()) as session:
-                return list(
-                    session.exec(
-                        select(HostedConsult).order_by(HostedConsult.created_at.desc()).limit(10)
-                    )
+                consults = list(
+                    session.exec(select(HostedConsult).order_by(HostedConsult.created_at.desc()).limit(10))
                 )
+                searches = list(
+                    session.exec(select(WebSearch).order_by(WebSearch.created_at.desc()).limit(10))
+                )
+                return consults, searches
 
-        rows = await asyncio.to_thread(fetch)
-        if not rows:
+        consults, searches = await asyncio.to_thread(fetch)
+        if not consults and not searches:
             await update.message.reply_text(
-                "Nothing's been sent to the external model — everything has stayed local. 🔒"
+                "Nothing's been sent externally — everything has stayed local. 🔒"
             )
             return
-        lines = ["🌐 Recent de-identified questions sent externally:"]
-        for r in rows:
-            snippet = r.sent_text[:120] + ("…" if len(r.sent_text) > 120 else "")
-            extra = f"  ({r.n_redactions} redacted)" if r.n_redactions else ""
-            lines.append(f"• {r.created_at.astimezone():%b %-d %-I:%M %p} — {snippet}{extra}")
+
+        def _snip(s: str) -> str:
+            return s[:120] + ("…" if len(s) > 120 else "")
+
+        items: list[tuple] = []
+        for r in consults:
+            extra = f" ({r.n_redactions} redacted)" if r.n_redactions else ""
+            items.append((r.created_at, f"💬 ask — {_snip(r.sent_text)}{extra}"))
+        for r in searches:
+            extra = f" ({r.n_redactions} redacted)" if r.n_redactions else ""
+            items.append((r.created_at, f"🔎 search — {_snip(r.query)}{extra}"))
+        items.sort(key=lambda x: x[0], reverse=True)
+
+        lines = ["🌐 Recent things sent externally (scrubbed before leaving):"]
+        lines += [f"• {created.astimezone():%b %-d %-I:%M %p} — {label}" for created, label in items[:12]]
         await update.message.reply_text("\n".join(lines))
 
     async def _on_build(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -608,12 +638,8 @@ class TelegramChannel(Channel):
             await asyncio.to_thread(self._log_one, chat_id, "user", user_text)
 
         if interrupt_payload is not None:
-            details = interrupt_payload.get("details", {})
-            proposal = (
-                "📝 Draft to approve (it will not be sent):\n\n"
-                f"To: {details.get('to')}\n"
-                f"Subject: {details.get('subject')}\n\n"
-                f"{details.get('body')}"
+            proposal = _render_proposal(
+                interrupt_payload.get("action", ""), interrupt_payload.get("details", {})
             )
             keyboard = InlineKeyboardMarkup(
                 [
