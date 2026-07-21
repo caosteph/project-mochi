@@ -60,7 +60,27 @@ tokens/sec; adopt only on measured improvement (`LOCAL_MODEL` is a one-line swit
 large quality gain for **$0**, and it directly tests whether the ~$1.4k Mac mini is still needed.
 **Small — a few hours of measurement.**
 
-### 7. Measure answer *quality*, not just tool firing
+### 7. Secret scanning in CI (a hard rule currently enforced by habit)
+Rule 5 — *secrets never leave the machine and never get committed* — is the **only hard-tier rule not
+enforced by code**. Today it's `.gitignore` plus a human remembering to check that `.env` isn't staged
+before each push. On a **public** repo the failure mode is severe and unrecoverable: a leaked bot token
+or hosted API key stays in git history after any deletion, so the fix is key rotation, not a revert.
+Add `gitleaks` (or `trufflehog`) as a third CI job on every push, and optionally a pre-commit hook so
+it fails *before* the commit exists rather than after it's public. Low probability × irreversible
+outcome × ~20 lines is exactly the shape of thing CLAUDE.md says belongs in the hard tier rather than
+in someone's memory. Distinct from *Secrets at rest* below, which is about how `.env` is **stored**;
+this is about it **escaping into git history**. **Small.**
+
+### 8. A fast smoke tier for the gate
+The standing rule is to re-run the tool-firing verifies after *any* persona/tool/graph change — but a
+full `verify_all.sh` measured **21 minutes** wall-clock (2026-07-21). That cost makes it the first
+thing skipped under time pressure, and a skipped gate is precisely how earlier regressions reached
+Stephanie before any test caught them. Add a smoke tier (`verify_smoke.sh`, or a `--fast` flag): ruff
++ the offline suite + `verify_scenarios` + firing on the core tools, targeting ~3 minutes, with the
+full sequential run reserved for pre-push. It doesn't add coverage — it makes the coverage we already
+have cheap enough that the rule is actually followed mid-change instead of only at the end. **Small.**
+
+### 9. Measure answer *quality*, not just tool firing
 Every gate we have asks "did the right tool fire?" and "is the reply free of JSON?" — nothing asks
 "was the answer any good?". SOTA practice is eval-driven: a golden set of conversations scored by an
 LLM judge, gating changes on the score. Cheap here: reuse the existing free hosted model
@@ -69,7 +89,7 @@ properties (correct, grounded in the tool result, no invention, right tone), and
 `verify_all.sh`. Without it, a change can quietly make replies worse while every gate stays green —
 the exact failure class that reached Stephanie before. **Medium.**
 
-### 8. Liveness heartbeat + `/status`
+### 10. Liveness heartbeat + `/status`
 launchd's `KeepAlive` restarts a process that *exits*, but not one that's wedged (hung poll, dead DB
 connection, unloaded model). Add a self-check that verifies the essentials — polling alive, Postgres
 reachable, Ollama responding, last tick recent — and self-heals or pings the chat on failure, plus a
@@ -77,7 +97,7 @@ reachable, Ollama responding, last tick recent — and self-heals or pings the c
 An assistant you trust with reminders is worse than useless when it's quietly dead, and right now
 silence looks identical to "nothing to say." **Small.**
 
-### 9. Nightly review pass (her own request)
+### 11. Nightly review pass (her own request)
 She asked for this directly: *"Can you run a nightly dream pass that checks for any mistakes or
 corrections that I had to make for you and then in the morning propose durable fixes."* Mine the day's
 `messagelog` for correction signals — "no", "stop", "I didn't ask for", a reminder cancelled shortly
@@ -86,14 +106,14 @@ changes she can approve. It converts her frustration into durable fixes instead 
 corrections, and it's the only item here that improves the system without her having to report a bug.
 **Medium.**
 
-### 10. Deeper memory & preferences (Phase 5)
+### 12. Deeper memory & preferences (Phase 5)
 Build on #2 — there's no point structuring memory that isn't being captured. Add lightweight typed
 structure (person / preference / routine / project) with confidence and recency, surface it as a
 compact profile block in the system prompt rather than raw recall hits, and feed it into the briefing
 and replies. Mind the prompt budget: the persona already uses ~3,600 of the 8k window. This is the
 difference between a generic assistant and *hers*. **Medium.**
 
-### 11. Generalizable per-action approval layer
+### 13. Generalizable per-action approval layer
 Today the gate is ad-hoc: `create_draft` and `web_search` call `require_approval` directly and
 `render.render_proposal` switches per action. Promote it to a declared policy — a config map of
 action → {always ask / ask once then remember / never} with a renderer registry, so gating a new
@@ -101,18 +121,18 @@ action is a table entry rather than bespoke code — and extend it to currently-
 like calendar-event mirroring. Stephanie explicitly asked for "ask permission when doing stuff", and
 predictability is what makes a permission model trustworthy. **Medium.**
 
-### 12. Google Drive (read, quarantined)
+### 14. Google Drive (read, quarantined)
 Mirror the Gmail pattern exactly: least-privilege read-only scope, a search/read tool pair, bodies
 routed through the **quarantined reader** (never into the privileged agent), results
 `frame_untrusted`-wrapped, no write capability. The last major personal data source, and it
 strengthens the receipt/return flows. Now unblocked — tool count is no longer a constraint (~95
 prompt tokens per tool, ~3,200 of headroom). **Medium (new OAuth scope).**
 
-### 13. Email in the daily briefing
+### 15. Email in the daily briefing
 Fold email signals into the morning digest once #3 is proven quiet. Currently excluded on purpose
 because the scanner was the noisy part. **Small.**
 
-### 14. Speak MCP (Model Context Protocol)
+### 16. Speak MCP (Model Context Protocol)
 The original plan called for off-the-shelf MCP servers via `langchain-mcp-adapters`; we went direct
 instead (right call at the time — fewer moving parts). But MCP is now the ecosystem standard, and an
 MCP client would let Mochi use maintained servers (Drive, Notion, Slack, filesystem, …) instead of a
@@ -120,63 +140,72 @@ bespoke integration each time. Constraint to respect: each bound tool costs ~95 
 adopt MCP *behind* the existing `tool_select` filter rather than binding whole servers. Biggest
 leverage-per-effort for capability breadth. **Medium.**
 
-### 15. Deep-read a web result page (closes an injection residual)
+### 17. Deep-read a web result page (closes an injection residual)
 Web-search snippets are `frame_untrusted`-wrapped — soft-tier "data, not instructions" — rather than
 passed through the dual-LLM boundary. Route fetched pages through `quarantine` like email bodies. This
 matters more the moment we fetch *full* pages for richer answers; today the residual is bounded by
 no-send / gated-writes / local-only. **Medium.**
 
-### 16. Decision tracing / observability
+### 18. Decision tracing / observability
 There is no way to answer "why did it do that last Tuesday?". `MessageLog` stores text but not the
 trajectory: which tools were in the bound subset, which fired, what came back, how long each took.
 SOTA is structured tracing (OpenTelemetry / Langfuse-style). A local-first version — one row per turn
 capturing the tool subset, calls, token counts and latency — makes regressions diagnosable after the
 fact instead of only reproducible live. Builds on the latency logging already shipped. **Small-medium.**
 
-### 17. More search providers
+### 19. Gate-result history (so a slow decline is visible)
+Every `verify_all.sh` run is judged in isolation, so a *gradual* decline is invisible. Sampling makes
+this sharper: with `sample_check` a behavioural check can stay green while quietly needing three
+attempts where it once needed one, and nothing but human memory compares runs. Append one JSONL row
+per run — commit sha, timestamp, per-check name/verdict/`hits`/`attempts` — to a git-ignored
+`data/gate-history.jsonl`, and print a one-line diff against the previous run at the end. Turns "is
+this getting worse?" into a question answerable from data rather than recollection. Distinct from
+*Decision tracing / observability* below, which records production turns, not gate results. **Small.**
+
+### 20. More search providers
 Add SearXNG (self-hosted → fully local query routing, the privacy ideal) and Brave behind the existing
 seam; smarter result ranking. Switching is already one config value (`WEB_SEARCH_PROVIDER`). **Small each.**
 
-### 18. Constrained decoding + validated retry for tool calls
+### 21. Constrained decoding + validated retry for tool calls
 The quarantined reader already uses `json_schema` structured output; the main agent's tool calls
 don't — a malformed call just fails the turn. Small models benefit disproportionately from
 constrained decoding plus a single validate-and-retry. Cheap reliability that doesn't depend on
 getting a better model. **Small.**
 
-### 19. Interruptibility (cancel a running turn)
+### 22. Interruptibility (cancel a running turn)
 A turn can't be stopped once it starts — if Mochi misreads a message and begins building the wrong
 thing, Stephanie waits it out. A `/stop` command (plus ignoring superseded turns) is standard
 assistant UX and cheap here. **Small.**
 
-### 20. Alembic migrations
+### 23. Alembic migrations
 `init_db` is `create_all` + hand-written `ALTER`s, and `create_all` won't alter existing tables, so new
 columns are added by hand. Fine at this size, fragile as the schema grows — and #2/#7 will grow it.
 **Medium, mostly one-time.**
 
-### 21. Checkpoint pruning
+### 24. Checkpoint pruning
 `PostgresSaver` writes a row per turn and nothing prunes it, so it grows unbounded. A periodic
 retention job (keep last N per thread / last M days). **Small.**
 
-### 22. Docker sandbox for generated code
+### 25. Docker sandbox for generated code
 `SubprocessSandbox` is best-effort — scrubbed env, cwd jail, best-effort `sandbox-exec` — not real
 isolation, and the builder executes model-generated code. The `DockerSandbox` drop-in was always the
 plan (better on the mini). **Medium.**
 
-### 23. Secrets at rest
+### 26. Secrets at rest
 `.env` holds the bot token and hosted API key in plaintext. Keychain was always the plan. **Small-medium.**
 
-### 24. Self-hosted CI runner + coverage gate
+### 27. Self-hosted CI runner + coverage gate
 Model behavior isn't gated on GitHub today (no Ollama in CI, by design). A self-hosted runner on the
 mini could run the full `verify_all.sh`; separately, add a coverage threshold now that `pytest-cov`
 runs in CI, and optionally run the one embedding-semantic test file there too. **Medium / small.**
 
-### 25. Doc bloat and drift
+### 28. Doc bloat and drift
 `docs/` is ~3,900 lines (`05-phase1-build.md` alone is 1,312). More importantly, this session found
 **three confidently-written conclusions that were wrong**, all downstream of one unmeasured config. Do
 a periodic "does this still match reality?" pass, and prefer linking measurements over restating them.
 **Small, recurring.**
 
-### 26. Mac mini + a larger local model
+### 29. Mac mini + a larger local model
 Still the best raw quality lever — reliability, memory headroom, and it unlocks the self-hosted CI
 runner. Ranked last because it's ~$1.4k against a $0 budget and the context fix already delivered much
 of what it promised. Revisit after #5 says whether a free model swap gets there. **Hardware + a migration pass.**
@@ -225,7 +254,10 @@ Postgres refused to start because a stale `postmaster.pid` survived (`brew servi
 removing a stale lock **only** after confirming no postmaster is running, since the recorded PID had
 been recycled to an unrelated app — starts Ollama, creates the 8k model if missing), and
 `scripts/run_mochi.sh` (preflight, then `exec` so launchd supervises the real process). Verified by
-killing the bot: restarted automatically in ~15s. Remaining gap → item #6.
+killing the bot: restarted automatically in ~15s. Remaining gap → *Liveness heartbeat + `/status`*
+(a **wedged** process still isn't restarted — `KeepAlive` only catches one that exits). Referred to by
+name, not number: this line previously pointed at "item #6", which renumbering had silently turned
+into an unrelated entry.
 
 ### Tech debt paydown (2026-07-20)
 Measured findings from the whole-repo pass, fixed:
