@@ -47,6 +47,42 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     print(f"{'PASS' if ok else 'FAIL'} | {name}" + (f" | {detail}" if detail else ""))
 
 
+def sample_check(name: str, probe, *, samples: int = 3, need: int = 1) -> bool:
+    """Decide a stochastic check from up to `samples` runs, passing when `need` of them succeed.
+
+    `probe()` returns `(ok, detail)`. This early-exits as soon as the outcome is settled, so a
+    healthy check still costs ONE model call and only a wobbling one pays for retries.
+
+    Choose `need` by what the check *means*:
+      - capability ("can it do this at all")   -> need=1        (retry semantics)
+      - must-not   ("this must never happen")  -> need=samples  (every run has to be clean —
+                                                  retrying until it passes would launder a violation)
+      - majority                               -> need=2 of 3
+
+    Why this exists: `verify_phase1` once reported `add_goal wrote a row | 0 -> 0` and failed the
+    gate, but the same prompt fired 3/3 when re-probed — single-sample variance on a stochastic 7B.
+    A gate that goes red at random stops being believed.
+
+    The hits/attempts tally is always printed, so a check scraping by on its third try shows as
+    `1/3` rather than a clean green. Retries trade false alarms for the risk of masking a slow
+    decline; that tally is the mitigation, and `scripts/verify_firing.py` remains the way to measure
+    an actual rate rather than a pass/fail.
+    """
+    hits = attempts = 0
+    detail = ""
+    for attempts in range(1, samples + 1):
+        ok, probe_detail = probe()
+        hits += bool(ok)
+        detail = probe_detail or detail
+        if hits >= need:
+            break
+        if hits + (samples - attempts) < need:
+            break  # remaining runs can't reach `need` — stop burning model calls
+    suffix = f" | {detail}" if detail else ""
+    check(name, hits >= need, f"{hits}/{attempts} (need {need}){suffix}")
+    return hits >= need
+
+
 def skip(name: str, why: str = "") -> None:
     """A check that couldn't run (missing creds/config). Printed, never counted as failure."""
     print(f"SKIP | {name}" + (f" — {why}" if why else ""))

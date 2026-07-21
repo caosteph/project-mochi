@@ -269,6 +269,32 @@ Reading the production `messagelog` + `reminder` tables instead of trusting inve
   never had — **must-NOT-fire** ("don't set any reminders" → `add_reminder` stays silent), plus
   "answers instead of promising to check", greeting restraint, and no markdown-dumping. All 12 pass.
 
+### The gate cried wolf: single-sample checks on a stochastic model (2026-07-21)
+The very next gate run failed on `add_goal wrote a row | 0 -> 0` and `add_task wrote a row | 0 -> 0`.
+Re-probing the same prompt at N=3 fired `['add_goal','add_task']` **3/3** — single-sample variance on
+a 7B, not a regression. That's the worst place for a false alarm: a gate that goes red at random stops
+being believed, and the next *real* regression gets waved through.
+
+The suite was inconsistent about this — `verify_phase2`'s reliability rates and `verify_phase1`'s
+fact-capture sweep already sampled and applied soft floors, but a handful of *gating behavioural*
+checks invoked the model exactly once. Added `_verify_lib.sample_check(name, probe, samples=, need=)`:
+it runs a probe up to `samples` times, passes at `need` hits, and **early-exits as soon as the outcome
+is decided**, so a healthy check still costs one model call (it prints `1/1`, not `1/3`) and only a
+wobbling one pays for retries. Applied to `verify_phase1` (both Biscuit recall checks, `need=1 of 3`;
+`add_goal`/`add_task` driven from **one** retry loop so a two-tool prompt isn't invoked twice) and
+`verify_scenarios` (calendar-answers and greeting-length at `need=1 of 2`).
+
+**The knob that matters is `need`, and it encodes the check's meaning.** A *capability* check ("can it
+do this at all") uses `need=1` — retry semantics. A **must-not** check ("this must never happen") uses
+**`need=samples`**, so every sample has to be clean: retrying a must-not until it passes would launder
+the violation. "A bare greeting triggers no tool" is therefore `2 of 2`, not `1 of 2`.
+
+Honest tradeoff: retries cut false alarms but could mask a *slow* decline. Mitigations — the
+`hits/attempts` tally is always printed so a scrape-by is visible, and `scripts/verify_firing.py`
+remains the tool for measuring an actual rate rather than a pass/fail. `tests/test_verify_lib.py`
+(11 offline tests, fake probes) pins the verdict *and* the call count for every branch, including that
+a retry can't launder a must-not violation. Post-change: `verify_phase1` 9/9, `verify_scenarios` 12/12.
+
 ### Latency instrumentation (and one fix)
 `LATENCY_LOG=true` logs per-turn tool-select embedding ms, time-to-first-token, tool round-trips, and
 total. First measurements: the per-turn embedding round-trip is **~55ms warm**, so the once-planned

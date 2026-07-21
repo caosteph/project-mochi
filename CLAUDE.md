@@ -41,6 +41,12 @@ Explicit, always-on expectations for any AI session in this repo — read this e
   give misleading results). To attribute a suspected regression, use **`scripts/verify_firing.py
   --baseline <tools>`** — it stashes your changes, measures HEAD in a fresh process, restores, and
   prints a HEAD-vs-working firing diff (the automated version of the manual bisection).
+  **Never gate on a single model sample** — use `_verify_lib.sample_check(name, probe, samples=, need=)`,
+  which retries only when needed (early-exits, so a healthy check still costs one call) and always
+  prints `hits/attempts` so a scrape-by is visible. Pick `need` by meaning: a *capability* check
+  ("can it do this at all") uses `need=1`; a **must-not** check ("this must never happen") uses
+  **`need=samples`** — retrying a must-not until it passes launders the violation, which is the one
+  way this helper can be used to make the gate lie.
 - **Definition of done:** offline `pytest` + relevant `verify_*` green, no regressions, docs/CLAUDE.md
   updated — *then* it's done, not before.
 - **Problem-solve through obstacles.** When something blocks (e.g. the 7B tool-count wall), diagnose the

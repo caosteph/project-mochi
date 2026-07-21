@@ -189,8 +189,11 @@ Two layers, because they catch different things:
 - **`tests/`** — a fast offline `pytest` suite that mocks the model + Google. Proves the plumbing.
 - **`scripts/verify_*.py`** — real-model checks that drive the *actual* agent (`build_agent()`) and
   the real 7B end-to-end, asserting *behavior* (the right tool fires, no raw-JSON dumps, injection
-  is refused). The local model is stochastic, so these use soft floors and are re-run to rule out
-  variance. `scripts/verify_all.sh` runs the whole regression sequentially.
+  is refused). The local model is stochastic, so these use soft floors, and a behavioural check that
+  wobbles is decided from several samples (`sample_check`) rather than one — while a *must-not* check
+  requires **every** sample to be clean, so a retry can't launder a violation. Each check prints its
+  `hits/attempts`, so scraping by never looks like a clean pass. `scripts/verify_all.sh` runs the
+  whole regression sequentially.
 
 ```bash
 uv run pytest tests/ -q

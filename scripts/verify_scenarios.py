@@ -21,6 +21,7 @@ from scripts._verify_lib import (
     fires,
     rate,
     require_scratch_db,
+    sample_check,
     summarize_and_exit,
     tool_calls,
 )
@@ -89,9 +90,16 @@ def main() -> None:
     #    actually raise — does it act, does it stay quiet, does it shut up.
 
     #    "where are you getting your information from and why is it always stale"
-    cal_reply = reply_text(agent, "what's on my calendar today?")
-    check("answers the calendar instead of promising to check it",
-          not _NARRATES.search(cal_reply), f"{cal_reply[:70]!r}")
+    #    Sampled: "can it answer rather than narrate" is a capability, so one wobble is variance.
+    cal_replies: list[str] = []
+
+    def calendar_answers() -> tuple[bool, str]:
+        text = reply_text(agent, "what's on my calendar today?")
+        cal_replies.append(text)
+        return not _NARRATES.search(text), f"{text[:70]!r}"
+
+    sample_check("answers the calendar instead of promising to check it",
+                 calendar_answers, samples=2, need=1)
 
     #    "STOP!!!!!" · "I DONT Wng these reminders" · "never gave permission for this"
     #    The suite had NO must-not-fire check, yet unwanted creation was her loudest complaint.
@@ -102,13 +110,25 @@ def main() -> None:
     check("respects 'don't set any reminders' — add_reminder must NOT fire", unwanted == 0, f"fired {unwanted}/2")
 
     #    Her bare "hello" got an unsolicited offer to draft an email.
-    greet_tools = tool_calls(agent, "hello")
-    greet_reply = reply_text(agent, "hello")
-    check("a bare greeting triggers no tool", not greet_tools, f"fired={greet_tools}")
-    check("a bare greeting gets a short answer", len(greet_reply) <= 400, f"{len(greet_reply)} chars")
+    #    "triggers no tool" is a MUST-NOT check, so it needs EVERY sample clean (need=samples):
+    #    retrying until a violation happens not to repeat would launder it.
+    def greeting_fires_nothing() -> tuple[bool, str]:
+        names = tool_calls(agent, "hello")
+        return not names, f"fired={names}"
+
+    sample_check("a bare greeting triggers no tool", greeting_fires_nothing, samples=2, need=2)
+
+    greet_replies: list[str] = []
+
+    def greeting_is_short() -> tuple[bool, str]:
+        text = reply_text(agent, "hello")
+        greet_replies.append(text)
+        return len(text) <= 400, f"{len(text)} chars"
+
+    sample_check("a bare greeting gets a short answer", greeting_is_short, samples=2, need=1)
 
     #    Persona: lead with the answer, no dumping. Transcripts: "### Checking Your Calendar:" + 1/2/3.
-    dumpy = [t for t in (*replies, cal_reply, greet_reply) if t and _DUMPS.search(t)]
+    dumpy = [t for t in (*replies, *cal_replies, *greet_replies) if t and _DUMPS.search(t)]
     check("no markdown-header / numbered-list dumping", not dumpy,
           f"{len(dumpy)} dumped | {dumpy[0][:60]!r}" if dumpy else "clean")
 
