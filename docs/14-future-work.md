@@ -40,9 +40,24 @@ Kept here because it reframes several older "7B limitations" as misdiagnoses.
   "the model won't draft to `alex@example.com`"; "`create_draft` is tool-count-diluted" (which had me
   lower a verify floor); and it **mechanistically explains why net-additive persona edits tanked
   firing** — extra persona tokens ate the last of the generation headroom.
-- **Follow-up worth testing:** the documented **"tool-count wall"** (~11 tools bound → fires, 13–15 →
-  ~0) may also have been *context* pressure, since each bound tool adds schema tokens. If so, the
-  per-turn cap in `app/agent/tool_select.py` could be raised. Cheap to test with `verify_firing.py`.
+- **Follow-up — TESTED, and it was the same root cause.** The documented **"tool-count wall"**
+  (~11 tools fire, 13–15 → ~0) was *also* context exhaustion. Each bound tool costs **~95 prompt
+  tokens**; at `num_ctx` 4096 with a ~3,600-token base prompt, ~11 tools is exactly where the prompt
+  crossed the window. Measured on the 8k model:
+
+  | tools bound | prompt_tokens | `add_reminder` | `create_draft` |
+  |---|---|---|---|
+  | 10 | 4,333 | 3/3 | 3/3 |
+  | 13 | 4,644 | 3/3 | 3/3 |
+  | **17 (all)** | **4,998** | **3/3** | **3/3** |
+
+  Every one of those exceeds 4,096 — i.e. they'd have overflowed the old window. **Consequence:
+  adding new tools is no longer dangerous** (budget ~95 tokens each; ~3,200 tokens of headroom
+  remain, so roughly 30 more tools before pressure).
+  **The ≤10 cap was left alone deliberately:** routing never excluded the right tool (15/15) and the
+  subsets it picks are only 7–9 tools, so the cap isn't even binding — and per-turn selection still
+  saves ~665 prompt tokens/turn (faster prefill, more generation headroom). It's now an
+  optimization, not a workaround.
 
 ## Latency & the 7B reliability ceiling
 

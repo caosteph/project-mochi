@@ -1,11 +1,17 @@
-"""Dynamic per-turn tool selection ("tool RAG"). The local 7B collapses when bound with
-too many tools (measured: 11 fire reliably, 13–15 → ~0), so instead of binding all tools
-every turn we bind a small, relevant subset chosen from the user's message: an always-on
-memory core + keyword-matched tools + the embedding-nearest tools, capped small.
+"""Dynamic per-turn tool selection ("tool RAG"): bind a small, relevant subset per turn — an
+always-on memory core + keyword-matched tools + the embedding-nearest tools, capped small.
 
-Validated on qwen2.5:7b: a ~6-tool subset fires the target tool reliably, and embedding
-routing puts the right tool in the top few for non-memory intents (memory is the always-on
-core). See docs/10-phase4b-build.md.
+HISTORY / CORRECTION (2026-07-20). This was built for a measured "tool-count wall" (11 tools
+fire, 13–15 → ~0). That wall turned out to be **context exhaustion, not a model limit**: each
+bound tool costs ~95 prompt tokens, and the model was running at Ollama's default num_ctx 4096
+where the base prompt was already ~3,600 — so ~11 tools is exactly where the prompt crossed the
+window. With the 8k-context model, **all 17 tools bind and fire 3/3** (prompt ~4,998 tokens).
+
+So this module is no longer load-bearing for correctness — but it's kept because it's still
+better: it saves ~665 prompt tokens/turn vs binding everything (faster prefill, more generation
+headroom) and routing is accurate (measured: the right tool was in the subset 15/15, and the
+selected subsets run 7–9 tools, below the cap). Adding new tools is now safe — budget ~95
+tokens each against the context. See docs/14-future-work.md.
 """
 
 import logging

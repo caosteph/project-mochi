@@ -64,8 +64,12 @@ went **0/23 → 18/18** (e.g. "ping me in 2 hours to stretch" 0/8→6/6; "read m
 0/3→4/4). Cost +0.3GB resident, zero swap. **This corrects several earlier misdiagnoses** ("the 7B
 derails on imperatives", "create_draft is tool-count-diluted") and explains *why* net-additive persona
 edits tanked firing — they ate the last of the generation headroom. Prompt token counts are identical
-at 4096 and 8192, so the prompt always *fit*; the damage was during generation. Open question worth
-testing: the "tool-count wall" may also have been context pressure. See `docs/14-future-work.md`.
+at 4096 and 8192, so the prompt always *fit*; the damage was during generation. **The "tool-count
+wall" was the same root cause** — tested: each bound tool costs ~95 prompt tokens, so at 4096 the
+prompt crossed the window at ~11 tools; on the 8k model **all 17 bind and fire 3/3** (prompt 4,998).
+Adding tools is therefore no longer dangerous (~95 tokens each, ~3,200 headroom). Per-turn tool
+selection is kept as an *optimization* (saves ~665 tok/turn; routing picked the right tool 15/15),
+not a workaround. See `docs/14-future-work.md`.
 
 **Phase 8 — web search (scrubbed + approved + audited).** Mochi can now **look things up online**
 (weather, prices, hours, "is X open", news). New `web_search` tool (`app/agent/tools/web_tools.py`)
