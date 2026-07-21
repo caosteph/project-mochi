@@ -47,6 +47,15 @@ Explicit, always-on expectations for any AI session in this repo — read this e
   ("can it do this at all") uses `need=1`; a **must-not** check ("this must never happen") uses
   **`need=samples`** — retrying a must-not until it passes launders the violation, which is the one
   way this helper can be used to make the gate lie.
+  **Test that tools EXECUTE, not just that they fire.** Every `verify_*` script breaks before the
+  tool node runs (deliberately — so measuring tool *choice* never creates a draft or hits the
+  network), which means a tool can be selected perfectly and raise on every call. `cancel_reminder`
+  shipped that way. `tests/test_tools_execute.py` invokes each DB-backed tool for real; a new tool
+  must be given test args or declared external. **And test multi-turn**: real conversations answer
+  "yes", and every behavioural check used to be single-turn, which is how a broken confirmation path
+  reached her. **Never assert an ORM attribute after its session closes** — `commit()` expires the
+  instance, so the write lands and the confirmation crashes; `scripts/audit_session_scope.py` gates
+  this and mocked-session unit tests structurally cannot.
 - **Definition of done:** offline `pytest` + relevant `verify_*` green, no regressions, docs/CLAUDE.md
   updated — *then* it's done, not before.
 - **Problem-solve through obstacles.** When something blocks (e.g. the 7B tool-count wall), diagnose the
@@ -74,8 +83,12 @@ at 4096 and 8192, so the prompt always *fit*; the damage was during generation. 
 wall" was the same root cause** — tested: each bound tool costs ~95 prompt tokens, so at 4096 the
 prompt crossed the window at ~11 tools; on the 8k model **all 17 bind and fire 3/3** (prompt 4,998).
 Adding tools is therefore no longer dangerous (~95 tokens each, ~3,200 headroom). Per-turn tool
-selection is kept as an *optimization* (saves ~665 tok/turn; routing picked the right tool 15/15),
-not a workaround. See `docs/14-future-work.md`.
+selection is kept as an *optimization* (saves ~665 tok/turn), not a workaround. **Correction
+(2026-07-21): the "routing picked the right tool 15/15" figure was measured only on single-turn
+prompts, and that blind spot broke a real conversation** — selection read just the newest message,
+so a bare "yes" bound nothing relevant and the model pasted a JSON tool call into the chat instead
+of calling it. Selection now reads the last `TOOL_SELECT_TURNS` (3) user turns: follow-ups went
+1/5 → 5/5 with single-turn unchanged. See `docs/14-future-work.md`.
 
 **Phase 8 — web search (scrubbed + approved + audited).** Mochi can now **look things up online**
 (weather, prices, hours, "is X open", news). New `web_search` tool (`app/agent/tools/web_tools.py`)

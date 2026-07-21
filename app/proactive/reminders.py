@@ -470,8 +470,19 @@ def _delete_mirror(reminder: Reminder) -> None:
 
 
 def cancel_reminder(session: Session, query: str) -> Reminder | None:
-    """Cancel by numeric id or a case-insensitive substring of the text — and remove its
-    mirrored calendar event so nothing is left behind."""
+    """Cancel by numeric id, a case-insensitive substring, or a fuzzy content-word match — and
+    remove its mirrored calendar event so nothing is left behind.
+
+    Substring alone was too strict to be usable. The model passes back whatever phrasing she
+    used, so `cancel_reminder("the dentist reminder")` had to match the stored "dentist
+    appointment" — and didn't, returning "I couldn't find a reminder matching…" while the
+    reminder sat there. Even the tool's own docstring example ('the mom reminder') failed.
+    `text_match.same_thing` is the matcher this project already uses to decide "same task" for
+    de-duplication; using it here makes cancelling as forgiving as de-duping.
+
+    Ambiguity is resolved rather than refused: the best content-word overlap wins, ties go to
+    the soonest due. The caller echoes back what it cancelled, so a wrong pick is visible.
+    """
     reminder = None
     if query.strip().isdigit():
         reminder = session.get(Reminder, int(query.strip()))
@@ -483,6 +494,14 @@ def cancel_reminder(session: Session, query: str) -> Reminder | None:
         ).all()
         q = query.lower()
         reminder = next((r for r in candidates if q in r.text.lower()), None)
+        if reminder is None:
+            q_words = text_match.content_words(query)
+            fuzzy = [r for r in candidates if text_match.same_thing(query, r.text)]
+            if fuzzy:
+                reminder = max(
+                    fuzzy,
+                    key=lambda r: (len(q_words & text_match.content_words(r.text)), -r.due_at.timestamp()),
+                )
     if reminder is None:
         return None
     _delete_mirror(reminder)

@@ -4,13 +4,32 @@ import socket
 import pytest
 from sqlalchemy import text
 
-from app.memory.db import get_engine, init_db
-
 # Local default; CI overrides via TEST_DATABASE_URL (its pgvector container only has the
 # `postgres` role/port). The "test" guard makes it impossible to point the suite — which
 # TRUNCATEs tables — at a non-test database.
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql://localhost/personal_agent_test")
 assert "test" in TEST_DATABASE_URL, f"refusing to run tests against a non-test DB: {TEST_DATABASE_URL!r}"
+
+# Point the APPLICATION's default database at the scratch DB, before any `app.*` import
+# resolves `settings.database_url` from .env. Environment beats .env in pydantic-settings, so
+# this makes a bare `get_engine()` — anywhere in app/ — safe.
+#
+# This is a hard guard, not tidiness. Tests used to rely on each test monkeypatching
+# `get_engine` in the module under test; when the /ask handlers moved from `telegram` to
+# `telegram_commands`, the patch moved with them but `_log_turn`/`_log_one` stayed behind in
+# `telegram`, resolving the UNPATCHED default — and wrote 48 test-fixture rows into
+# Stephanie's real message log. Per-test patching is the wrong layer for this: forgetting it is
+# silent, and the blast radius is production data.
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+
+from app.config import settings  # noqa: E402
+from app.memory.db import get_engine, init_db  # noqa: E402
+
+# Belt and braces: if something imported app.config before this file (a plugin, an -p option),
+# the env var above arrived too late — so correct the resolved value too, and fail loudly
+# rather than silently writing somewhere real.
+settings.database_url = TEST_DATABASE_URL
+assert "test" in settings.database_url, "app settings must point at the scratch DB during tests"
 
 _ALLOWED_HOSTS = {"127.0.0.1", "::1", "localhost"}
 _orig_connect = socket.socket.connect

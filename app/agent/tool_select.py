@@ -7,11 +7,17 @@ bound tool costs ~95 prompt tokens, and the model was running at Ollama's defaul
 where the base prompt was already ~3,600 — so ~11 tools is exactly where the prompt crossed the
 window. With the 8k-context model, **all 17 tools bind and fire 3/3** (prompt ~4,998 tokens).
 
-So this module is no longer load-bearing for correctness — but it's kept because it's still
-better: it saves ~665 prompt tokens/turn vs binding everything (faster prefill, more generation
-headroom) and routing is accurate (measured: the right tool was in the subset 15/15, and the
-selected subsets run 7–9 tools, below the cap). Adding new tools is now safe — budget ~95
-tokens each against the context. See docs/14-future-work.md.
+So this module is no longer load-bearing for correctness — but it's kept because it saves ~665
+prompt tokens/turn vs binding everything (faster prefill, more generation headroom), and the
+selected subsets run 7–9 tools, below the cap. Adding new tools is safe — budget ~95 tokens each.
+
+CAUTION (2026-07-21). The old claim "routing is accurate, 15/15" was measured on single-turn
+prompts ONLY, and that is exactly where this module fails: a *follow-up* like "yes" or "do you
+understand?" carries no routing signal, so the tool the conversation is about goes unbound and the
+model, unable to call it, prints the call as text and claims it worked. That broke a real
+conversation eight turns long. `graph._agent_node` therefore passes the last TOOL_SELECT_TURNS
+user messages, not just the newest — measured 1/5 → 5/5 on her actual phrasings, single-turn
+unchanged. If you change what gets passed in here, re-run tests/test_tool_select_followup.py.
 """
 
 import logging

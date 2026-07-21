@@ -61,6 +61,21 @@ def reply_text(agent, prompt: str) -> str:
     return ""
 
 
+def bound_tools_after(turns: list[str]) -> set[str]:
+    """Which tools would be BOUND on the last of `turns`, given the ones before it.
+
+    Deterministic (no model): tool selection is pure. This exists because the gate only ever
+    tested single-turn prompts, and the whole class of failure it missed is a follow-up — the
+    tool can't fire if it was never bound, no matter how good the model is.
+    """
+    from app.agent import tool_select
+    from app.agent.graph import TOOL_SELECT_TURNS
+    from app.agent.tools import ALL_TOOLS
+
+    text = "\n".join(turns[-TOOL_SELECT_TURNS:])
+    return {t.name for t in tool_select.select_tools(text, ALL_TOOLS)}
+
+
 def main() -> None:
     agent = build_agent()
 
@@ -126,6 +141,22 @@ def main() -> None:
         return len(text) <= 400, f"{len(text)} chars"
 
     sample_check("a bare greeting gets a short answer", greeting_is_short, samples=2, need=1)
+
+    # 4. Follow-ups: the intent is in an EARLIER turn and the latest message is a bare
+    #    confirmation. Taken from her 2026-07-21 conversation, where she asked to cancel a
+    #    reminder, was asked to confirm, said "yes" — and got a raw JSON tool call pasted as
+    #    text plus a false "the reminder has been removed", because "yes" routes to nothing and
+    #    cancel_reminder was never bound. Deterministic, so it costs no model calls.
+    followups = [
+        (["I already did the health insurance claims, remove that reminder", "yes"], "cancel_reminder"),
+        (["cancel my reminder about the dentist", "yes please"], "cancel_reminder"),
+        (["remind me to call mom on sunday", "yes"], "add_reminder"),
+        (["remove the outdated reminder", "do you understand?"], "cancel_reminder"),
+    ]
+    missed = [(t[-1], w) for t, w in followups if w not in bound_tools_after(t)]
+    check("a bare confirmation still binds the tool the conversation is about",
+          not missed, f"{len(followups) - len(missed)}/{len(followups)}"
+          + (f" | missing {missed[0][1]} after {missed[0][0]!r}" if missed else ""))
 
     #    Persona: lead with the answer, no dumping. Transcripts: "### Checking Your Calendar:" + 1/2/3.
     dumpy = [t for t in (*replies, *cal_replies, *greet_replies) if t and _DUMPS.search(t)]

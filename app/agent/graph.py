@@ -39,10 +39,13 @@ class AgentState(MessagesState):
     summary: str
 
 
+# How many recent user turns feed tool selection. More than one because a confirmation ("yes",
+# "do that") carries no routing signal of its own — the intent is in the turn before it.
+TOOL_SELECT_TURNS = 3
+
 # The main agent is the SENSITIVE path (it has memory + Google + persona) → the router
-# always resolves this to the LOCAL model. Tools are bound PER TURN, not here: the local
-# 7B collapses when handed all ~15 tools at once (measured), so _agent_node selects a small
-# relevant subset from the message and binds only those (see app/agent/tool_select.py).
+# always resolves this to the LOCAL model. Tools are bound PER TURN, not here: _agent_node
+# selects a small relevant subset and binds only those (see app/agent/tool_select.py).
 # Temperature 0.4 is lower than Phase 0's 0.7: tool-call adherence on a 7B degrades at higher
 # temperature (see docs/05-phase1-build.md's tool-invocation-reliability gotcha).
 _base_llm = router.chat_model(Sensitivity.SENSITIVE, temperature=0.4)
@@ -68,12 +71,18 @@ def _agent_node(state: AgentState) -> dict:
     time_note = SystemMessage(f"(For reference, the current date/time is {now:%A, %Y-%m-%d %H:%M %Z}.)")
     messages = [SystemMessage(core), *state["messages"], time_note]
 
-    # Bind only a small, relevant subset of tools for this turn (the 7B can't handle all of
-    # them at once). Select from the most recent user message — stable across the tool-loop.
-    last_human = next(
-        (m.content for m in reversed(state["messages"]) if isinstance(m, HumanMessage)), ""
-    )
-    subset = tool_select.select_tools(last_human if isinstance(last_human, str) else "", ALL_TOOLS)
+    # Bind a small, relevant subset of tools for this turn — selected from the last few user
+    # messages, not just the newest one. Selecting from the newest alone is what broke her
+    # 2026-07-21 conversation: she asked to cancel a reminder, Mochi asked to confirm, she said
+    # "yes" — and "yes" routes to nothing, so cancel_reminder wasn't bound and the model printed
+    # the tool call as text instead of calling it, then claimed it had. Measured on her actual
+    # phrasings: last-message-only bound the needed tool 1/5 on such follow-ups, recent-turns
+    # 5/5, with no loss on single-turn prompts (6/6) and slightly FEWER tools bound on average.
+    recent_human = [
+        m.content for m in reversed(state["messages"])
+        if isinstance(m, HumanMessage) and isinstance(m.content, str)
+    ][:TOOL_SELECT_TURNS]
+    subset = tool_select.select_tools("\n".join(reversed(recent_human)), ALL_TOOLS)
     llm = _base_llm.bind_tools(subset) if subset else _base_llm
     return {"messages": [llm.invoke(messages)]}
 

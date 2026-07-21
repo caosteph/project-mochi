@@ -44,25 +44,31 @@ def add_reminder(
 @tool
 def list_reminders() -> str:
     """List Stephanie's upcoming (pending) reminders."""
+    # Read every attribute INSIDE the session. Touching a model object after the `with` block
+    # works only until something commits and expires it — see cancel_reminder below, where
+    # exactly that shipped broken.
     with Session(get_engine()) as session:
-        pending = reminders.list_pending(session)
-    if not pending:
-        return "You have no upcoming reminders."
-    lines = []
-    for r in pending:
-        rec = f" (every {r.recurrence})" if r.recurrence else ""
-        lines.append(f"- {r.text} — {r.due_at.astimezone():%a %b %-d, %-I:%M %p}{rec}")
-    return "\n".join(lines)
+        lines = [
+            f"- {r.text} — {r.due_at.astimezone():%a %b %-d, %-I:%M %p}"
+            + (f" (every {r.recurrence})" if r.recurrence else "")
+            for r in reminders.list_pending(session)
+        ]
+    return "\n".join(lines) if lines else "You have no upcoming reminders."
 
 
 @tool
 def cancel_reminder(query: str) -> str:
     """Cancel a reminder by a description of it (e.g. 'the mom reminder') or its number."""
+    # `reminders.cancel_reminder` commits, which expires the instance; reading `.text` after the
+    # session closed raised DetachedInstanceError, so the reminder WAS cancelled and the tool
+    # then blew up — the turn errored and Stephanie was told nothing had happened. Read the
+    # text inside the block and return a plain string.
     with Session(get_engine()) as session:
         cancelled = reminders.cancel_reminder(session, query)
-    if cancelled is None:
+        text = cancelled.text if cancelled is not None else None
+    if text is None:
         return f"I couldn't find a reminder matching {query!r}."
-    return f"Cancelled: {cancelled.text}."
+    return f"Cancelled: {text}."
 
 
 REMINDER_TOOLS = [add_reminder, list_reminders, cancel_reminder]
