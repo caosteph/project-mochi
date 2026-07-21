@@ -22,6 +22,7 @@ unchanged. If you change what gets passed in here, re-run tests/test_tool_select
 
 import logging
 import math
+import re
 import time
 
 from app.config import settings
@@ -50,6 +51,20 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
     "web_search": ("search", "look up", "google", "weather", "how much is", "price of", "who won", "who is", "what is a", "latest", "right now", "near me", "open on", "hours", "what time does", "current"),
     "serve_project": ("make it public", "make it live", "serve", "share the site"),
     "list_projects": ("my projects", "what have you built", "list projects"),
+}
+
+# Patterns for intents that literal substrings keep missing. KEYWORDS matches fixed strings, so
+# "remove the reminder" was listed but "remove that reminder" / "remove the outdated reminder"
+# both fell through — and cancelling is the one thing she most needs to work, because a reminder
+# she can't kill nags forever. These also matter when embedding is unavailable (Ollama down, or
+# CI), where keyword routing is ALL there is.
+REGEX_BOOSTS: dict[str, re.Pattern] = {
+    "cancel_reminder": re.compile(
+        r"\b(cancel|remove|delete|drop|kill|get rid of)\b[^.?!]{0,40}\b(reminder|it|that|those)\b"
+        r"|\b(already (did|done)|no longer need|don'?t need (it|that|this)|stop reminding)\b",
+        re.I,
+    ),
+    "list_reminders": re.compile(r"\bwhat.{0,20}\breminders?\b|\breminders?\b.{0,15}\b(do i have|are set)\b", re.I),
 }
 
 _tool_vecs: dict[str, list[float]] = {}
@@ -103,9 +118,11 @@ def select_tools(message: str, all_tools: list, *, k: int = 6, cap: int = 10) ->
     if settings.latency_log:
         log.info("latency: tool_select embedding %.0fms", (time.perf_counter() - t0) * 1000)
 
-    # Keyword boosts fill any remaining slots.
+    # Keyword + regex boosts fill any remaining slots. Both are union'd in, so a false positive
+    # only costs a capped slot; it can never displace the right tool.
     low = message.lower()
     ordered += [name for name, kws in KEYWORDS.items() if name in by_name and any(kw in low for kw in kws)]
+    ordered += [name for name, rx in REGEX_BOOSTS.items() if name in by_name and rx.search(message)]
 
     seen: set[str] = set()
     chosen: list = []

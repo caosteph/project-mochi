@@ -57,11 +57,22 @@ def _seed(engine, monkeypatch):
         s.commit()
 
 
+# These embed their input, so they need a real local embedding model. CI deselects
+# `needs_ollama`; they run in the local gate.
+NEEDS_EMBEDDING = {"remember_fact", "recall"}
+
+
 def _db_tools():
-    return [t for t in ALL_TOOLS if t.name not in NEEDS_EXTERNAL]
+    params = []
+    for tool in ALL_TOOLS:
+        if tool.name in NEEDS_EXTERNAL:
+            continue
+        marks = [pytest.mark.needs_ollama] if tool.name in NEEDS_EMBEDDING else []
+        params.append(pytest.param(tool, marks=marks, id=tool.name))
+    return params
 
 
-@pytest.mark.parametrize("tool", _db_tools(), ids=lambda t: t.name)
+@pytest.mark.parametrize("tool", _db_tools())
 def test_tool_executes_without_raising(tool):
     """The check the gate structurally cannot make: run it, don't just select it."""
     if tool.name not in ARGS:

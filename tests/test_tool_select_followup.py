@@ -108,3 +108,24 @@ def test_the_graph_feeds_recent_turns_into_selection_not_just_the_last():
     assert "dentist" in captured.get("text", ""), (
         "selection must see the earlier turn that carries the intent, not only 'yes'"
     )
+
+
+def test_routing_survives_the_embedding_backend_being_down():
+    """The degraded path, which CI runs every time (no Ollama) and production hits whenever the
+    embedding call fails. `select_tools` already falls back to keyword routing — but the keyword
+    list matched fixed strings, so "remove THAT reminder" and "remove the OUTDATED reminder" both
+    fell through and cancelling silently stopped working. REGEX_BOOSTS covers the phrasings.
+    """
+    from unittest.mock import patch
+
+    cases = [
+        (["I already did the health insurance claims, remove that reminder", "yes"], "cancel_reminder"),
+        (["cancel my reminder about the dentist", "yes please"], "cancel_reminder"),
+        (["remove the outdated reminder", "do you understand?"], "cancel_reminder"),
+        (["remind me to call mom on sunday", "yes"], "add_reminder"),
+        (["what's on my calendar today?", "yes"], "calendar_list_events"),
+    ]
+    with patch.object(tool_select, "embed_local", side_effect=RuntimeError("ollama down")):
+        for turns, want in cases:
+            names = {t.name for t in tool_select.select_tools("\n".join(turns), ALL_TOOLS)}
+            assert want in names, f"{want} unbound without embeddings for {turns[-1]!r}: {sorted(names)}"
