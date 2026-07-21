@@ -61,19 +61,6 @@ def resolve_when(when: str, *, now: datetime | None = None) -> tuple[str, str, s
     return s.isoformat(), e.isoformat(), label
 
 
-def _fmt_event(e: dict) -> str:
-    start = e.get("start") or ""
-    loc = f" @ {e['location']}" if e.get("location") else ""
-    try:
-        if "T" in start:  # timed event
-            when = f"{datetime.fromisoformat(start):%a %b %-d, %-I:%M %p}"
-        else:  # all-day
-            when = f"{datetime.fromisoformat(start):%a %b %-d} (all day)"
-    except ValueError:
-        when = start
-    return f"- {when}: {e.get('summary', '(no title)')}{loc}"
-
-
 def frame_untrusted(source: str, body: str) -> str:
     """Wrap attacker-influenceable text (email subjects/senders, calendar invite
     titles — anyone can send you those) so the model treats it as data, not
@@ -97,7 +84,7 @@ def calendar_list_events(when: str = "today") -> str:
     events = google_calendar.list_events(start_iso, end_iso)
     if not events:
         return f"📅 {label}: nothing on your calendar."
-    body = frame_untrusted("calendar", "\n".join(_fmt_event(e) for e in events))
+    body = frame_untrusted("calendar", "\n".join(google_calendar.format_event(e) for e in events))
     return f"📅 {label}:\n{body}"
 
 

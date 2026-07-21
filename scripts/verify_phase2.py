@@ -13,21 +13,14 @@ Run:
         PYTHONPATH=. uv run python scripts/verify_phase2.py
 """
 
-import os
 import sys
 import uuid
 
-if "personal_agent_test" not in os.environ.get("DATABASE_URL", "") and "verify" not in os.environ.get(
-    "DATABASE_URL", ""
-):
-    print(
-        "Refusing to run: DATABASE_URL must point at a scratch DB "
-        f"(got {os.environ.get('DATABASE_URL')!r}). This drives build_agent()."
-    )
-    sys.exit(1)
 
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "verify_placeholder")
-os.environ.setdefault("TELEGRAM_CHAT_ID", "1")
+from scripts._verify_lib import bootstrap_env, check, require_scratch_db, summarize_and_exit
+
+require_scratch_db()
+bootstrap_env()
 
 from app.integrations import google_auth, google_calendar, google_gmail  # noqa: E402
 
@@ -41,12 +34,8 @@ Google OAuth is not configured yet — nothing to verify live. To set it up:
 Then run this script again; the first run opens a browser once to grant access.
 """
 
-results: list[tuple[str, bool, str]] = []
 
 
-def check(name: str, passed: bool, detail: str = "") -> None:
-    results.append((name, passed, detail))
-    print(f"{'PASS' if passed else 'FAIL'} | {name}" + (f" | {detail}" if detail else ""))
 
 
 def main() -> None:
@@ -86,16 +75,12 @@ def main() -> None:
     # is probabilistic. Cleans up any drafts it happens to create.
     check_tool_reliability()
 
-    print()
-    failed = [r for r in results if not r[1]]
-    print(f"{len(results) - len(failed)}/{len(results)} checks passed.")
     print(
         "\nNote: the full model->interrupt->Telegram-button->resume path is still a final "
         "live human check on the phone. The gate mechanics are covered offline in "
         "tests/test_confirm_gate.py; whether the model fires the tools is measured above."
     )
-    if failed:
-        sys.exit(1)
+    summarize_and_exit()
 
 
 def check_tool_reliability(floor: float = 0.6) -> None:

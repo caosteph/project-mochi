@@ -16,22 +16,13 @@ Exits non-zero if any check fails, so it can gate "this works" claims rather
 than just being read as reassuring output.
 """
 
-import os
-import sys
 import uuid
 
-if "personal_agent_test" not in os.environ.get("DATABASE_URL", "") and "verify" not in os.environ.get(
-    "DATABASE_URL", ""
-):
-    print(
-        "Refusing to run: DATABASE_URL must point at a scratch DB "
-        "(expected 'personal_agent_test' or 'verify' in the name), got: "
-        f"{os.environ.get('DATABASE_URL')!r}. This script writes real rows."
-    )
-    sys.exit(1)
 
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "verify_placeholder")
-os.environ.setdefault("TELEGRAM_CHAT_ID", "1")
+from scripts._verify_lib import bootstrap_env, check, require_scratch_db, summarize_and_exit
+
+require_scratch_db()
+bootstrap_env()
 
 from langchain_core.messages import HumanMessage  # noqa: E402
 from sqlmodel import Session, select  # noqa: E402
@@ -40,12 +31,8 @@ from app.agent.graph import build_agent  # noqa: E402
 from app.memory.db import get_engine  # noqa: E402
 from app.memory.models import Goal, Task  # noqa: E402
 
-results: list[tuple[str, bool, str]] = []
 
 
-def check(name: str, passed: bool, detail: str = "") -> None:
-    results.append((name, passed, detail))
-    print(f"{'PASS' if passed else 'FAIL'} | {name}" + (f" | {detail}" if detail else ""))
 
 
 def fresh_thread() -> dict:
@@ -184,14 +171,7 @@ def main() -> None:
         s.ollama_base_url,
     )
 
-    print()
-    failed = [r for r in results if not r[1]]
-    print(f"{len(results) - len(failed)}/{len(results)} checks passed.")
-    if failed:
-        print("FAILED:")
-        for name, _, detail in failed:
-            print(f"  - {name} ({detail})")
-        sys.exit(1)
+    summarize_and_exit()
 
 
 if __name__ == "__main__":

@@ -23,11 +23,9 @@ from app.proactive import briefing, email_signals, reminders
 log = logging.getLogger(__name__)
 
 # Runtime kill-switch, initialized from config, toggled live by /pause /resume.
+# (Read directly as `_enabled` within this module; there is no public getter because nothing
+# outside needed one — an unused `is_enabled()` accessor was removed.)
 _enabled = settings.proactivity_enabled
-
-
-def is_enabled() -> bool:
-    return _enabled
 
 
 def set_enabled(value: bool) -> None:

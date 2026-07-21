@@ -72,6 +72,35 @@ def list_events(
     return events
 
 
+def format_event(e: dict, *, with_date: bool = True) -> str:
+    """One display line for an event dict from `list_events`.
+
+    Lives here (rather than in either caller) because the same parsing — ISO start, all-day
+    vs timed, optional location, unparseable fallback — was duplicated in the calendar tool
+    and the daily briefing. The two only ever differed in presentation:
+      with_date=True  → "- Mon Jul 20, 2:00 PM: Dentist @ Downtown"  (the tool; date needed)
+      with_date=False → "• 2:00 PM — Dentist @ Downtown"             (the briefing; its header
+                                                                      already carries the date)
+    """
+    start = e.get("start") or ""
+    loc = f" @ {e['location']}" if e.get("location") else ""
+    timed = "T" in start
+    try:
+        dt = datetime.fromisoformat(start) if start else None
+    except ValueError:
+        dt = None
+
+    if dt is None:
+        when = start
+    elif with_date:
+        when = f"{dt:%a %b %-d, %-I:%M %p}" if timed else f"{dt:%a %b %-d} (all day)"
+    else:
+        when = f"{dt:%-I:%M %p}" if timed else "all day"
+
+    summary = e.get("summary", "(no title)")
+    return f"- {when}: {summary}{loc}" if with_date else f"• {when} — {summary}{loc}"
+
+
 def create_event(
     summary: str, start_iso: str, end_iso: str, *, popup_minutes: int = 0, service=None
 ) -> dict:

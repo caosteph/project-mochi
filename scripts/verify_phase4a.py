@@ -10,11 +10,10 @@ Run (Ollama must be serving the local model):
     PYTHONPATH=. uv run python scripts/verify_phase4a.py
 """
 
-import os
-import sys
 
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "verify_placeholder")
-os.environ.setdefault("TELEGRAM_CHAT_ID", "1")
+from scripts._verify_lib import bootstrap_env, check, skip, summarize_and_exit
+
+bootstrap_env()
 
 from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
 
@@ -22,12 +21,8 @@ from app.agent import router, sanitize  # noqa: E402
 from app.agent.router import Sensitivity  # noqa: E402
 from app.config import settings  # noqa: E402
 
-results: list[tuple[str, bool, str]] = []
 
 
-def check(name: str, ok: bool, detail: str = "") -> None:
-    results.append((name, ok, detail))
-    print(f"{'PASS' if ok else 'FAIL'} | {name}" + (f" | {detail}" if detail else ""))
 
 
 # Personal questions with KNOWN identifiers we expect to be gone after de-identification.
@@ -115,13 +110,9 @@ def main() -> None:
         except Exception as exc:
             check("real hosted round-trip", False, str(exc)[:80])
     else:
-        print("SKIP | real hosted round-trip — hosting not enabled/configured (fully-local mode)")
+        skip("real hosted round-trip", "hosting not enabled/configured (fully-local mode)")
 
-    print()
-    failed = [r for r in results if not r[1]]
-    print(f"{len(results) - len(failed)}/{len(results)} checks passed.")
-    if failed:
-        sys.exit(1)
+    summarize_and_exit()
 
 
 if __name__ == "__main__":

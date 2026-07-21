@@ -68,71 +68,62 @@ difference between a generic assistant and *hers*. **Medium.**
 
 ### 8. Generalizable per-action approval layer
 Today the gate is ad-hoc: `create_draft` and `web_search` call `require_approval` directly and
-`telegram._render_proposal` switches per action. Promote it to a declared policy — a config map of
+`render.render_proposal` switches per action. Promote it to a declared policy — a config map of
 action → {always ask / ask once then remember / never} with a renderer registry, so gating a new
 action is a table entry rather than bespoke code — and extend it to currently-ungated external writes
 like calendar-event mirroring. Stephanie explicitly asked for "ask permission when doing stuff", and
 predictability is what makes a permission model trustworthy. **Medium.**
 
-### 9. Tech debt: shared verify lib, split `telegram.py`, small cleanups
-Measured duplication across 1,289 lines of verify scripts (`check()` reimplemented in **9** scripts,
-`fires()` in **4**, the scratch-DB guard in **7**, env placeholders in **10**) → extract
-`scripts/_verify_lib.py`. `telegram.py` is **705 LOC at 62% coverage** doing transport + ~10 commands
-+ buttons + rendering + approval + audit → split it. Plus: the duplicated `_fmt_event`
-(`google_tools.py` / `briefing.py`), dead `jobs.is_enabled()`, and coverage holes (`warmup.py` **0%**
-and now carrying real logic, `reminder_tools` 34%, `memory_tools` 40%, `builder/serve` 35%). Every
-future phase touches these files. **Small (verify lib) + medium (split).**
-
-### 10. Google Drive (read, quarantined)
+### 9. Google Drive (read, quarantined)
 Mirror the Gmail pattern exactly: least-privilege read-only scope, a search/read tool pair, bodies
 routed through the **quarantined reader** (never into the privileged agent), results
 `frame_untrusted`-wrapped, no write capability. The last major personal data source, and it
 strengthens the receipt/return flows. Now unblocked — tool count is no longer a constraint (~95
 prompt tokens per tool, ~3,200 of headroom). **Medium (new OAuth scope).**
 
-### 11. Email in the daily briefing
+### 10. Email in the daily briefing
 Fold email signals into the morning digest once #3 is proven quiet. Currently excluded on purpose
 because the scanner was the noisy part. **Small.**
 
-### 12. Deep-read a web result page (closes an injection residual)
+### 11. Deep-read a web result page (closes an injection residual)
 Web-search snippets are `frame_untrusted`-wrapped — soft-tier "data, not instructions" — rather than
 passed through the dual-LLM boundary. Route fetched pages through `quarantine` like email bodies. This
 matters more the moment we fetch *full* pages for richer answers; today the residual is bounded by
 no-send / gated-writes / local-only. **Medium.**
 
-### 13. More search providers
+### 12. More search providers
 Add SearXNG (self-hosted → fully local query routing, the privacy ideal) and Brave behind the existing
 seam; smarter result ranking. Switching is already one config value (`WEB_SEARCH_PROVIDER`). **Small each.**
 
-### 14. Alembic migrations
+### 13. Alembic migrations
 `init_db` is `create_all` + hand-written `ALTER`s, and `create_all` won't alter existing tables, so new
 columns are added by hand. Fine at this size, fragile as the schema grows — and #2/#7 will grow it.
 **Medium, mostly one-time.**
 
-### 15. Checkpoint pruning
+### 14. Checkpoint pruning
 `PostgresSaver` writes a row per turn and nothing prunes it, so it grows unbounded. A periodic
 retention job (keep last N per thread / last M days). **Small.**
 
-### 16. Docker sandbox for generated code
+### 15. Docker sandbox for generated code
 `SubprocessSandbox` is best-effort — scrubbed env, cwd jail, best-effort `sandbox-exec` — not real
 isolation, and the builder executes model-generated code. The `DockerSandbox` drop-in was always the
 plan (better on the mini). **Medium.**
 
-### 17. Secrets at rest
+### 16. Secrets at rest
 `.env` holds the bot token and hosted API key in plaintext. Keychain was always the plan. **Small-medium.**
 
-### 18. Self-hosted CI runner + coverage gate
+### 17. Self-hosted CI runner + coverage gate
 Model behavior isn't gated on GitHub today (no Ollama in CI, by design). A self-hosted runner on the
 mini could run the full `verify_all.sh`; separately, add a coverage threshold now that `pytest-cov`
 runs in CI, and optionally run the one embedding-semantic test file there too. **Medium / small.**
 
-### 19. Doc bloat and drift
+### 18. Doc bloat and drift
 `docs/` is ~3,900 lines (`05-phase1-build.md` alone is 1,312). More importantly, this session found
 **three confidently-written conclusions that were wrong**, all downstream of one unmeasured config. Do
 a periodic "does this still match reality?" pass, and prefer linking measurements over restating them.
 **Small, recurring.**
 
-### 20. Mac mini + a larger local model
+### 19. Mac mini + a larger local model
 Still the best raw quality lever — reliability, memory headroom, and it unlocks the self-hosted CI
 runner. Ranked last because it's ~$1.4k against a $0 budget and the context fix already delivered much
 of what it promised. Revisit after #5 says whether a free model swap gets there. **Hardware + a migration pass.**
@@ -182,6 +173,29 @@ removing a stale lock **only** after confirming no postmaster is running, since 
 been recycled to an unrelated app — starts Ollama, creates the 8k model if missing), and
 `scripts/run_mochi.sh` (preflight, then `exec` so launchd supervises the real process). Verified by
 killing the bot: restarted automatically in ~15s. Remaining gap → item #6.
+
+### Tech debt paydown (2026-07-20)
+Measured findings from the whole-repo pass, fixed:
+- **`scripts/_verify_lib.py`** — the verify scripts had drifted into copy-paste: `check()` in **9**
+  scripts (three different signatures), `fires()` in **4**, the scratch-DB guard in **7**, env
+  placeholders in **10**. All ten now share one library; duplication is 0 and total verify LOC went
+  **1,289 → 1,182** *including* the new file. Consolidating also upgraded every script to the best
+  variant — failures are now listed by name (previously only `verify_phase1` did that).
+- **`google_calendar.format_event(e, with_date=…)`** replaces the duplicated `_fmt_event` in
+  `google_tools.py` and `briefing.py` (same parsing, two presentations). It lives in
+  `google_calendar` because both callers already import it — no new dependency, no cycle.
+- **Dead code removed**: `jobs.is_enabled()` (never called).
+- **`app/channels/render.py`** — the stateless presentation layer (status breadcrumbs, per-action
+  approval proposal, MarkdownV2 conversion, chunking) split out of `telegram.py` and now **100%
+  covered**; `telegram.py` 705 → 663 LOC.
+- **Coverage**: `warmup.py` **0% → 65%**, `memory_tools` **40% → 88%**, `reminder_tools` **34% → 86%**;
+  suite **164 → 183 tests**, total **78% → 81%**.
+
+**Deliberately not done — the full `telegram.py` class split.** Moving the 9 command handlers and the
+155-line `_run_with_status` into mixins would mostly relocate code: it adds indirection without fixing
+a defect, and it refactors the live path of a bot in daily use. The part with real value (the pure
+render layer) is done. Revisit only when there's a concrete reason — e.g. a second channel (iMessage)
+actually needing to share the streaming engine.
 
 ### Latency instrumentation (and one fix)
 `LATENCY_LOG=true` logs per-turn tool-select embedding ms, time-to-first-token, tool round-trips, and

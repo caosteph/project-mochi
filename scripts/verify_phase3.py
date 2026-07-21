@@ -8,21 +8,14 @@ Run:
 """
 
 import asyncio
-import os
-import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 
-if "personal_agent_test" not in os.environ.get("DATABASE_URL", "") and "verify" not in os.environ.get(
-    "DATABASE_URL", ""
-):
-    print(f"Refusing to run: DATABASE_URL must point at a scratch DB (got {os.environ.get('DATABASE_URL')!r}).")
-    sys.exit(1)
+from scripts._verify_lib import bootstrap_env, check, rate, require_scratch_db, skip, summarize_and_exit
 
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "verify_placeholder")
-os.environ.setdefault("TELEGRAM_CHAT_ID", "1")
+require_scratch_db()
+bootstrap_env()
 
-from langchain_core.messages import HumanMessage  # noqa: E402
 from sqlmodel import Session  # noqa: E402
 
 from app.agent.graph import build_agent  # noqa: E402
@@ -32,12 +25,6 @@ from app.memory.models import Purchase  # noqa: E402
 from app.proactive import jobs, reminders  # noqa: E402
 
 UTC = timezone.utc
-results: list[tuple[str, bool, str]] = []
-
-
-def check(name: str, ok: bool, detail: str = "") -> None:
-    results.append((name, ok, detail))
-    print(f"{'PASS' if ok else 'FAIL'} | {name}" + (f" | {detail}" if detail else ""))
 
 
 class RecordingBot:
@@ -74,21 +61,12 @@ def main() -> None:
     # 2. Model actually fires add_reminder (soft-tier reliability, like Phase 2).
     agent = build_agent()
 
-    def fires(prompt: str) -> bool:
-        cfg = {"configurable": {"thread_id": f"verify-rem-{uuid.uuid4()}"}}
-        for update in agent.stream({"messages": [HumanMessage(prompt)]}, cfg, stream_mode="updates"):
-            ap = update.get("agent")
-            if ap and ap.get("messages"):
-                if any(tc["name"] == "add_reminder" for tc in (getattr(ap["messages"][-1], "tool_calls", None) or [])):
-                    return True
-        return False
-
     prompts = [
         "remind me to call mom every Sunday",
         "remind me to submit the form tomorrow at 3pm",
         "ping me in 2 hours to stretch",
     ]
-    hits = sum(fires(p) for p in prompts)
+    hits = rate(agent, prompts, "add_reminder")
     check("model fires add_reminder (rate)", hits / len(prompts) >= 0.6,
           f"{hits}/{len(prompts)} — soft-tier (prompt) reliability on a 7B, floor 60%")
 
@@ -108,13 +86,9 @@ def main() -> None:
             hint = " (re-consent needed for calendar.events scope?)" if "insufficient" in msg.lower() or "scope" in msg.lower() else ""
             check("calendar event create+delete round-trip", False, f"{msg[:80]}{hint}")
     else:
-        print("SKIP | calendar round-trip — no Google token configured")
+        skip("calendar round-trip", "no Google token configured")
 
-    print()
-    failed = [r for r in results if not r[1]]
-    print(f"{len(results) - len(failed)}/{len(results)} checks passed.")
-    if failed:
-        sys.exit(1)
+    summarize_and_exit()
 
 
 if __name__ == "__main__":

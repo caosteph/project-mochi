@@ -24,7 +24,6 @@ import os
 import threading
 from datetime import time as dt_time
 
-import telegramify_markdown
 from tzlocal import get_localzone
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.types import Command
@@ -44,6 +43,7 @@ from app.agent import router, sanitize
 from app.agent.graph import build_agent
 from app.agent.router import Sensitivity
 from app.channels.base import Channel
+from app.channels.render import chunk, render_proposal, status_for_tool, to_markdown_v2
 from app.config import settings
 from app.memory import extract, store
 from app.memory.db import get_engine
@@ -52,55 +52,15 @@ from app.proactive import briefing, jobs, reminders
 
 log = logging.getLogger(__name__)
 
-# Friendly, present-tense status shown when Mochi starts using a tool. Kept short —
-# these are breadcrumbs, not sentences.
-_TOOL_STATUS = {
-    "calendar_list_events": "📅 Checking your calendar…",
-    "gmail_list_recent": "📬 Looking through your inbox…",
-    "read_email": "📖 Reading that email…",
-    "create_draft": "✉️ Drafting that email…",
-    "recall": "🧠 Checking what I remember…",
-    "remember_fact": "🧠 Noting that down…",
-    "add_goal": "🎯 Adding that goal…",
-    "add_task": "✅ Adding that task…",
-    "add_reminder": "⏰ Setting that reminder…",
-    "list_reminders": "📋 Checking your reminders…",
-    "cancel_reminder": "🗑️ Cancelling that reminder…",
-    "consult_expert": "🧭 Consulting a bigger model…",
-    "web_search": "🔎 Searching the web…",
-    "build_web_app": "🛠️ Building that…",
-    "make_document": "📄 Putting that document together…",
-    "serve_project": "🌐 Serving that up…",
-    "list_projects": "📁 Checking what I've built…",
-}
 
 # Lightweight system prompt for the /ask generic path — no persona tool/safety block,
 # no memory, no history. Kept separate from the graph so /ask never touches sensitive data.
 _ASK_SYSTEM = "You are Mochi, Stephanie's helpful assistant. Answer the question clearly and concisely."
 
 
-def status_for_tool(name: str) -> str:
-    return _TOOL_STATUS.get(name, "⏳ Working on it…")
 
 
-def _render_proposal(action: str, details: dict) -> str:
-    """The human-readable proposal shown with Approve/Reject, per action type. Each
-    side-effectful action that routes through the confirm gate gets a rendering here."""
-    if action == "web_search":
-        return (
-            "🔎 Search the web for (this scrubbed query will leave your machine):\n\n"
-            f"{details.get('query')}"
-        )
-    # Default / create_draft: a draft to approve (never auto-sent).
-    return (
-        "📝 Draft to approve (it will not be sent):\n\n"
-        f"To: {details.get('to')}\n"
-        f"Subject: {details.get('subject')}\n\n"
-        f"{details.get('body')}"
-    )
 
-
-_TG_LIMIT = 4096  # Telegram's max message length
 
 
 class TelegramChannel(Channel):
@@ -126,18 +86,15 @@ class TelegramChannel(Channel):
         chunks anything over Telegram's length limit — so a message never fails to deliver.
         Returns the (last) sent Message so its id can anchor a reply-thread."""
         text = text or "…"
-        try:
-            formatted = telegramify_markdown.markdownify(text, latex_escape=False)
-        except Exception:  # converter hiccup → treat as unformatted
-            formatted = None
-        if formatted and len(formatted) <= _TG_LIMIT:
+        formatted = to_markdown_v2(text)
+        if formatted:
             try:
                 return await bot.send_message(chat_id=chat_id, text=formatted, parse_mode="MarkdownV2")
             except Exception:  # malformed MarkdownV2 (BadRequest) → plain fallback
                 log.warning("MarkdownV2 send failed; falling back to plain text", exc_info=True)
         last = None
-        for i in range(0, len(text), 4000):
-            last = await bot.send_message(chat_id=chat_id, text=text[i : i + 4000])
+        for piece in chunk(text):
+            last = await bot.send_message(chat_id=chat_id, text=piece)
         return last
 
     def _remember_ask(self, message, history: list) -> None:
@@ -623,8 +580,8 @@ class TelegramChannel(Channel):
             await show_reply(final_text)
             if reply_msg_id[0] is not None and final_text:
                 try:
-                    formatted = telegramify_markdown.markdownify(final_text, latex_escape=False)
-                    if 0 < len(formatted) <= _TG_LIMIT and formatted.strip() != final_text:
+                    formatted = to_markdown_v2(final_text)
+                    if formatted and formatted.strip() != final_text:
                         await ctx.bot.edit_message_text(
                             formatted, chat_id=chat_id, message_id=reply_msg_id[0], parse_mode="MarkdownV2"
                         )
@@ -648,7 +605,7 @@ class TelegramChannel(Channel):
             await asyncio.to_thread(self._log_one, chat_id, "user", user_text)
 
         if interrupt_payload is not None:
-            proposal = _render_proposal(
+            proposal = render_proposal(
                 interrupt_payload.get("action", ""), interrupt_payload.get("details", {})
             )
             keyboard = InlineKeyboardMarkup(

@@ -8,40 +8,15 @@ Run (Ollama serving the local model):
     DATABASE_URL=postgresql://localhost/personal_agent_test PYTHONPATH=. uv run python scripts/verify_web_search.py
 """
 
-import os
-import sys
-import uuid
+from scripts._verify_lib import bootstrap_env, check, rate, require_scratch_db, skip, summarize_and_exit
 
-if "personal_agent_test" not in os.environ.get("DATABASE_URL", "") and "verify" not in os.environ.get("DATABASE_URL", ""):
-    print(f"Refusing to run: DATABASE_URL must be a scratch DB (got {os.environ.get('DATABASE_URL')!r}).")
-    sys.exit(1)
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "verify_placeholder")
-os.environ.setdefault("TELEGRAM_CHAT_ID", "1")
-
-from langchain_core.messages import HumanMessage  # noqa: E402
+require_scratch_db()
+bootstrap_env()
 
 from app.agent.graph import build_agent  # noqa: E402
 from app.agent.tools.web_tools import web_search_available  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.integrations import web_search as search_api  # noqa: E402
-
-results: list[tuple[str, bool, str]] = []
-
-
-def check(name: str, ok: bool, detail: str = "") -> None:
-    results.append((name, ok, detail))
-    print(f"{'PASS' if ok else 'FAIL'} | {name}" + (f" | {detail}" if detail else ""))
-
-
-def fires(agent, prompt: str) -> bool:
-    """True if the model fires web_search for `prompt`. Breaks BEFORE execution (so no
-    approval/network), like the other verify scripts."""
-    cfg = {"configurable": {"thread_id": f"ws-{uuid.uuid4()}"}}
-    for u in agent.stream({"messages": [HumanMessage(prompt)]}, cfg, stream_mode="updates"):
-        ap = u.get("agent")
-        if ap and ap.get("messages"):
-            return "web_search" in [tc["name"] for tc in (getattr(ap["messages"][-1], "tool_calls", None) or [])]
-    return False
 
 
 def main() -> None:
@@ -52,7 +27,7 @@ def main() -> None:
         "is Trader Joe's open on Sundays?",
         "what's the current price of bitcoin?",
     ]
-    hits = sum(fires(agent, p) for p in prompts)
+    hits = rate(agent, prompts, "web_search")
     check("model fires web_search (rate)", hits >= 2, f"{hits}/{len(prompts)} — floor 2/3 (soft-tier reliability on a 7B)")
 
     # 2. Live provider round-trip (best-effort; only if configured). Proves the real API
@@ -66,14 +41,10 @@ def main() -> None:
         except Exception as exc:
             check(f"live {settings.web_search_provider} round-trip", False, str(exc)[:100])
     else:
-        print(f"SKIP | live provider round-trip — web search not configured "
-              f"(provider={settings.web_search_provider!r}, key set={bool(settings.web_search_api_key)})")
+        skip("live provider round-trip", f"web search not configured (provider="
+             f"{settings.web_search_provider!r}, key set={bool(settings.web_search_api_key)})")
 
-    print()
-    failed = [r for r in results if not r[1]]
-    print(f"{len(results) - len(failed)}/{len(results)} checks passed.")
-    if failed:
-        sys.exit(1)
+    summarize_and_exit()
 
 
 if __name__ == "__main__":

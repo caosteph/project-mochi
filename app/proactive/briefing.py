@@ -48,17 +48,6 @@ def due_today(session: Session, now: datetime) -> list[Reminder]:
 
 # --- sections (each returns [] when empty, so it's simply omitted) ----------
 
-def _fmt_event(e: dict) -> str:
-    """A calendar line for the briefing — time-only, since the header carries the date."""
-    start = e.get("start") or ""
-    loc = f" @ {e['location']}" if e.get("location") else ""
-    try:
-        when = f"{datetime.fromisoformat(start):%-I:%M %p}" if "T" in start else "all day"
-    except ValueError:
-        when = start
-    return f"• {when} — {e.get('summary', '(no title)')}{loc}"
-
-
 def _calendar_section(now: datetime, service) -> list[str]:
     try:
         start_iso, end_iso = _today_bounds(now)
@@ -68,7 +57,7 @@ def _calendar_section(now: datetime, service) -> list[str]:
         return []
     if not events:
         return []
-    return ["📅 On your calendar today:", *(_fmt_event(e) for e in events)]
+    return ["📅 On your calendar today:", *(google_calendar.format_event(e, with_date=False) for e in events)]
 
 
 def _reminders_section(session: Session, now: datetime) -> list[str]:

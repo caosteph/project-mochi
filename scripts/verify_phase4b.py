@@ -7,22 +7,18 @@ Run:
 
 import os
 import shutil
-import sys
 import urllib.request
 
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "verify_placeholder")
-os.environ.setdefault("TELEGRAM_CHAT_ID", "1")
+from scripts._verify_lib import bootstrap_env, check, skip, summarize_and_exit
+
+bootstrap_env()
 os.environ["SECRET_CANARY"] = "should-not-leak"
 
 from app.agent import router  # noqa: E402
 from app.builder import codegen, docs, sandbox, serve, workspace  # noqa: E402
 
-results: list[tuple[str, bool, str]] = []
 
 
-def check(name: str, ok: bool, detail: str = "") -> None:
-    results.append((name, ok, detail))
-    print(f"{'PASS' if ok else 'FAIL'} | {name}" + (f" | {detail}" if detail else ""))
 
 
 def main() -> None:
@@ -68,15 +64,11 @@ def main() -> None:
             except Exception as exc:
                 check("hosted code-gen returns a web project", False, str(exc)[:100])
         else:
-            print("SKIP | hosted code-gen — hosting not enabled (would run on the local model)")
+            skip("hosted code-gen", "hosting not enabled (would run on the local model)")
     finally:
         shutil.rmtree(proj, ignore_errors=True)
 
-    print()
-    failed = [r for r in results if not r[1]]
-    print(f"{len(results) - len(failed)}/{len(results)} checks passed.")
-    if failed:
-        sys.exit(1)
+    summarize_and_exit()
 
 
 if __name__ == "__main__":

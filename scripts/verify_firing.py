@@ -24,13 +24,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import uuid
 
-if "personal_agent_test" not in os.environ.get("DATABASE_URL", "") and "verify" not in os.environ.get("DATABASE_URL", ""):
-    print(f"Refusing to run: DATABASE_URL must be a scratch DB (got {os.environ.get('DATABASE_URL')!r}).")
-    sys.exit(1)
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "verify_placeholder")
-os.environ.setdefault("TELEGRAM_CHAT_ID", "1")
+from scripts._verify_lib import bootstrap_env, fires, require_scratch_db
+
+require_scratch_db()
+bootstrap_env()
 
 # Representative prompts per tool (accumulated from real-model measurement this project).
 PROMPTS: dict[str, list[str]] = {
@@ -58,21 +56,6 @@ PROMPTS: dict[str, list[str]] = {
 }
 
 
-def _fires(agent, prompt: str, tool: str) -> bool:
-    cfg = {"configurable": {"thread_id": f"fire-{uuid.uuid4()}"}}
-    for update in agent.stream({"messages": [_human(prompt)]}, cfg, stream_mode="updates"):
-        ap = update.get("agent")
-        if ap and ap.get("messages"):
-            names = [tc["name"] for tc in (getattr(ap["messages"][-1], "tool_calls", None) or [])]
-            return tool in names
-    return False
-
-
-def _human(text: str):
-    from langchain_core.messages import HumanMessage
-    return HumanMessage(text)
-
-
 def measure(tools: list[str], n: int) -> dict:
     """{tool: {prompt: hits_out_of_n}} on the current on-disk code."""
     from app.agent.graph import build_agent
@@ -83,7 +66,7 @@ def measure(tools: list[str], n: int) -> dict:
         if not prompts:
             print(f"  (no prompts registered for {tool!r} — add to PROMPTS)", file=sys.stderr)
             continue
-        out[tool] = {p: sum(_fires(agent, p, tool) for _ in range(n)) for p in prompts}
+        out[tool] = {p: sum(fires(agent, p, tool) for _ in range(n)) for p in prompts}
     return out
 
 

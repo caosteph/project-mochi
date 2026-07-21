@@ -11,12 +11,11 @@ Run (Ollama must be serving the local model):
 """
 
 import json
-import os
-import sys
 from pathlib import Path
 
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "verify_placeholder")
-os.environ.setdefault("TELEGRAM_CHAT_ID", "1")
+from scripts._verify_lib import bootstrap_env, check, skip, summarize_and_exit
+
+bootstrap_env()
 
 from app.agent import quarantine  # noqa: E402
 from app.agent.quarantine import EmailSummary, ExtractedSignal  # noqa: E402
@@ -24,12 +23,8 @@ from app.config import settings  # noqa: E402
 from app.integrations import google_auth, google_gmail  # noqa: E402
 
 FIXTURES = json.loads((Path(__file__).parent.parent / "tests" / "fixtures" / "email_signals.json").read_text())
-results: list[tuple[str, bool, str]] = []
 
 
-def check(name: str, ok: bool, detail: str = "") -> None:
-    results.append((name, ok, detail))
-    print(f"{'PASS' if ok else 'FAIL'} | {name}" + (f" | {detail}" if detail else ""))
 
 
 def main() -> None:
@@ -134,17 +129,13 @@ def main() -> None:
                 check("real Gmail body-read round-trip", isinstance(body.get("body_text"), str),
                       f"read {len(body.get('body_text') or '')} chars from a real message")
             else:
-                print("SKIP | real Gmail body-read — no recent messages matched")
+                skip("real Gmail body-read", "no recent messages matched")
         except Exception as exc:
             check("real Gmail body-read round-trip", False, str(exc)[:80])
     else:
-        print("SKIP | real Gmail body-read — no Google token configured")
+        skip("real Gmail body-read", "no Google token configured")
 
-    print()
-    failed = [r for r in results if not r[1]]
-    print(f"{len(results) - len(failed)}/{len(results)} checks passed.")
-    if failed:
-        sys.exit(1)
+    summarize_and_exit()
 
 
 if __name__ == "__main__":
