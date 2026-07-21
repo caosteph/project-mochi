@@ -2,7 +2,7 @@
 against the scratch DB + a mock calendar; no phone, no model."""
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from sqlmodel import Session
@@ -21,7 +21,7 @@ from app.memory.models import (
 )
 from app.proactive import briefing, jobs
 
-UTC = timezone.utc
+UTC = UTC
 TZ = get_localzone()
 
 

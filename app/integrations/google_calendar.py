@@ -3,12 +3,11 @@ calendar-write scope). Functions take an optional pre-built `service` so they're
 unit-testable against a mock without touching the network or real credentials.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from googleapiclient.discovery import build
 
 from app.integrations.google_auth import get_credentials
-
 
 _service_cache = None
 
@@ -41,7 +40,7 @@ def list_events(
     description text is surfaced, only summary/time/location.
     """
     service = service or _service()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = start_iso or now.isoformat()
     end = end_iso or (now + timedelta(days=7)).isoformat()
 

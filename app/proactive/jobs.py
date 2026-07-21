@@ -9,7 +9,7 @@ never-duplicated).
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlmodel import Session, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -47,7 +47,7 @@ def _keyboard(reminder_id: int) -> InlineKeyboardMarkup:
 async def run_reminder_tick(bot, session: Session, chat_id: int, now: datetime | None = None) -> int:
     """Send nudges for due reminders. Testable core: pass a mock bot + scratch
     session. Returns the number of nudges sent."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     if not _enabled:
         return 0
     if reminders.in_quiet_hours(now.astimezone()):
@@ -95,7 +95,7 @@ async def send_pending_asks(bot, session: Session, chat_id: int, now: datetime |
     ASKED so it's never re-asked. Respects the /pause kill-switch and quiet hours (a
     deferred ask just waits as DETECTED for the next non-quiet tick). Capped per run.
     Each send in its own try/except. Returns the number of asks sent."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     if not _enabled:
         return 0
     if reminders.in_quiet_hours(now.astimezone()):
@@ -133,7 +133,7 @@ async def run_signal_ingest_tick(
     """Testable core: scan for new signals, then push any pending approval asks. In
     tests, pass a mock bot + a mock Gmail `service` + a fake `extractor` for a fully
     offline run. Returns the number of asks sent."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     if not _enabled or not settings.signal_scanning_enabled:
         return 0
     email_signals.ingest_signals(session, service=service, extractor=extractor, now=now)
@@ -166,7 +166,7 @@ async def run_daily_briefing(bot, session: Session, chat_id: int, *, now=None, s
     """Send the morning digest — ONE deterministic message. Gated by the /pause
     kill-switch and `briefing_enabled`. Returns True if a briefing was sent. Testable
     core: pass a mock bot + scratch session + mock calendar `service`."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     if not _enabled or not settings.briefing_enabled:
         return False
     text = briefing.build_briefing(session, now=now, service=service)

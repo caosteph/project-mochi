@@ -16,7 +16,6 @@ Run:
 import sys
 import uuid
 
-
 from scripts._verify_lib import bootstrap_env, check, require_scratch_db, summarize_and_exit
 
 require_scratch_db()

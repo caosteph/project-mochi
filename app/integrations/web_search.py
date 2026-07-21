@@ -53,17 +53,15 @@ def _tavily(query: str, api_key: str | None, max_results: int, client: httpx.Cli
 def _duckduckgo(query: str, max_results: int) -> list[SearchResult]:
     from ddgs import DDGS  # lazy import — the dep is only needed if this provider is used
 
-    out: list[SearchResult] = []
     with DDGS() as d:
-        for r in d.text(query, max_results=max_results):
-            out.append(
-                SearchResult(
-                    title=_cap(r.get("title"), _TITLE_CAP),
-                    url=r.get("href") or r.get("link") or r.get("url") or "",
-                    snippet=_cap(r.get("body") or r.get("snippet"), _SNIPPET_CAP),
-                )
+        return [
+            SearchResult(
+                title=_cap(r.get("title"), _TITLE_CAP),
+                url=r.get("href") or r.get("link") or r.get("url") or "",
+                snippet=_cap(r.get("body") or r.get("snippet"), _SNIPPET_CAP),
             )
-    return out
+            for r in d.text(query, max_results=max_results)
+        ]
 
 
 def search(

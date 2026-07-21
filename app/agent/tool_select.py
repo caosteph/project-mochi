@@ -50,7 +50,9 @@ _tool_vecs: dict[str, list[float]] = {}
 
 
 def _cos(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    # strict=: a length mismatch means the embedding cache is stale or the model changed —
+    # better to raise than to silently score against a truncated vector.
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
     return dot / (na * nb + 1e-9)

@@ -54,7 +54,6 @@ class Settings(BaseSettings):
 
     # Embeddings — always local; deliberately no separate/hosted embedding URL setting.
     embedding_model: str = "nomic-embed-text"
-    embedding_dims: int = 768
 
     # Retrieval tunables
     recall_default_k: int = 8
@@ -119,9 +118,7 @@ class Settings(BaseSettings):
     # Builder (Phase 4B) — Mochi scaffolds/serves web apps + generates docs in a sandbox.
     builder_port_base: int = 8100        # first port to try when serving built apps
     builder_sandbox_timeout: int = 120   # seconds cap on a sandboxed command
-    builder_npm_timeout: int = 300       # npm install/build can be slow
     builder_fs_deny: bool = True         # best-effort sandbox-exec deny of data//.env reads
-    cloudflared_path: str = "cloudflared"
 
     # Email signal ingestion (Phase 3B) — the quarantined reader scans recent mail,
     # extracts a typed actionable signal, and proactively asks before creating a reminder.

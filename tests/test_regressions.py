@@ -6,7 +6,7 @@ and orphaned-calendar-event failures actually happened.
 """
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from sqlmodel import Session
@@ -15,7 +15,7 @@ from tzlocal import get_localzone
 from app.memory.models import ReminderStatus
 from app.proactive import briefing, jobs, reminders
 
-UTC = timezone.utc
+UTC = UTC
 
 
 class RecordingBot:

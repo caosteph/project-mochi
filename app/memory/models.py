@@ -4,8 +4,8 @@ MessageLog); Phase 3A added Purchase; Phase 3B added the email-signal pipeline t
 (Phase 5) — see docs/05-phase1-build.md's scope-trim note.
 """
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import BigInteger, Column, DateTime, String
@@ -13,7 +13,7 @@ from sqlmodel import Field, SQLModel
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # All datetime columns are explicitly TIMESTAMPTZ. SQLModel's default mapping
@@ -24,25 +24,25 @@ def _tz_column(*, nullable: bool = False) -> Column:
     return Column(DateTime(timezone=True), nullable=nullable)
 
 
-class Provenance(str, Enum):
+class Provenance(StrEnum):
     USER_STATED = "user_stated"
     INFERRED = "inferred"
     IMPORTED = "imported"  # reserved for Phase 2+ (Gmail/Calendar-derived facts)
 
 
-class GoalStatus(str, Enum):
+class GoalStatus(StrEnum):
     ACTIVE = "active"
     COMPLETED = "completed"
     ABANDONED = "abandoned"
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     OPEN = "open"
     DONE = "done"
     CANCELLED = "cancelled"
 
 
-class ReminderStatus(str, Enum):
+class ReminderStatus(StrEnum):
     PENDING = "pending"
     SENT = "sent"
     DONE = "done"
@@ -50,18 +50,18 @@ class ReminderStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class ReminderKind(str, Enum):
+class ReminderKind(StrEnum):
     GENERIC = "generic"          # user-created via add_reminder
     RETURN_WINDOW = "return_window"  # auto-created from a Purchase
 
 
-class Recurrence(str, Enum):
+class Recurrence(StrEnum):
     DAILY = "daily"
     WEEKLY = "weekly"
     MONTHLY = "monthly"
 
 
-class SignalType(str, Enum):
+class SignalType(StrEnum):
     """The kind of actionable item the quarantined reader found in an email.
     A return is just one type — the whole point of Phase 3B is that this is a
     general pipeline, not a receipt-specific one. Adding a new type (e.g. a
@@ -74,7 +74,7 @@ class SignalType(str, Enum):
     OTHER = "other"
 
 
-class SignalStatus(str, Enum):
+class SignalStatus(StrEnum):
     DETECTED = "detected"      # extracted, approval ask not yet sent
     ASKED = "asked"            # approval ask sent, awaiting her yes/no (never re-asked)
     CONFIRMED = "confirmed"    # approved → a reminder was created

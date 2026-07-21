@@ -73,7 +73,7 @@ def test_tally_is_always_reported_so_a_scrape_by_is_visible():
     the mitigation, so a check limping in at 1/3 doesn't read as a clean green."""
     probe, _ = scripted([False, False, True])
     sample_check("limping", probe, samples=3, need=1)
-    name, ok, detail = results[-1]
+    _name, ok, detail = results[-1]
     assert ok is True
     assert "1/3" in detail and "need 1" in detail
 

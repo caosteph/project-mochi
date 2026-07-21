@@ -8,6 +8,9 @@ Detailed phase plan: [`00-plan.md`](./00-plan.md). Shipped status: [`CLAUDE.md`]
 
 > **Picking anything up:** if it touches the persona, tools, or graph, validate with
 > `scripts/verify_firing.py --baseline <tools>` before shipping — the 7B regresses silently.
+>
+> **Cross-reference items by NAME, never by number.** Reordering renumbers everything, and two
+> `#N` references have already rotted into pointing at unrelated entries.
 
 ---
 
@@ -18,25 +21,7 @@ git-ignored `backups/` dir, rotated, scheduled daily via launchd (mirroring the 
 restored once into a scratch DB to prove it actually works. Best risk-to-effort ratio on this list:
 a disk failure or a bad migration currently erases the whole point of the project. **Small (~20 lines).**
 
-### 2. Make long-term memory actually accumulate
-The premise is "holds long-term memory about her life" — the production DB has **1 fact from 89
-messages**. Diagnose before building: instrument the post-turn extraction sweep (`app/memory/extract.py`)
-to report candidates found vs stored vs deduped, replay recent `MessageLog` history through it offline
-to get a real capture rate, then fix the weak link (likely making the sweep primary and the flaky
-`remember_fact` tool a bonus). Add `/facts` so it's visible what she's remembered. Without this it's a
-capable chatbot with tools, not a personal agent — and it compounds: briefing, replies, and proactivity
-all improve when memory is real. **Medium, diagnosis-led.**
-
-### 3. Re-enable the email signal scanner (the flagship)
-The headline feature — spot a purchase, remind her before the return window closes — is switched
-**off** because early scans were noisy. It now has dedup, a require-due-date filter, per-scan caps,
-go-forward-only baselining, an approval ask, and the context fix that improved extraction. Turn it on
-in shadow mode first (log detections without pushing), hand-check precision for a few days, tighten,
-then enable the proactive ask with `/pause` as the kill switch. It's the differentiator that motivated
-the project, currently dormant, and the only feature that creates value with zero effort from her.
-**Medium — mostly tuning and judgement, not new code.**
-
-### 4. Let a task be retired
+### 2. Let a task be retired
 Nothing can mark a task dead. She was rejected from Perplexity and wrote "I ALRWADY GOT REJEXTED FROM
 PERPLECITH NO NEED TO KEEP REMINDING" — and "Perplexity prep" kept being recreated (8 rows), still
 pending for the next morning until it was cancelled by hand. Cancelling one instance doesn't stop the
@@ -45,20 +30,57 @@ next recreation, because nothing records that the *underlying thing* is over. Ad
 email-signal paths consult before creating — so obsolescence is stated once and respected everywhere.
 This, not dedup, is the real fix for what made her stop using it. **Medium.**
 
-### 5. Voice messages (local transcription)
+**Promoted (2026-07-21):** this now sits above the email signal scanner. Re-enabling proactive
+detection before there's a way to say "that's over" would recreate exactly the loop that ended her
+usage — she'd get new auto-created reminders with no mechanism to kill the underlying thing.
+
+### 3. Make memory real (capture first, then structure)
+The premise is "holds long-term memory about her life" — the production DB has **1 fact from 89
+messages**. Two stages, deliberately one item: there is no point structuring memory that isn't being
+captured, and splitting them invites building (b) first.
+
+**(a) Fix capture.** Instrument the post-turn extraction sweep (`app/memory/extract.py`) to report
+candidates found vs stored vs deduped, replay recent `MessageLog` history through it offline to get a
+real capture rate, then fix the weak link (likely making the sweep primary and the flaky
+`remember_fact` tool a bonus). Add `/facts` so what she's remembered is visible.
+
+**(b) Then add structure** (the old Phase 5): lightweight typed records (person / preference / routine
+/ project) with confidence and recency, surfaced as a compact profile block in the system prompt
+rather than raw recall hits, and fed into the briefing and replies. Mind the prompt budget — the
+persona already uses ~3,600 of the 8k window.
+
+Without (a) this is a capable chatbot with tools, not a personal agent; with both it's *hers*. It
+compounds: briefing, replies, and proactivity all improve when memory is real. **Medium, diagnosis-led.**
+
+### 4. Liveness heartbeat + `/status`
+launchd's `KeepAlive` restarts a process that *exits*, but not one that's wedged (hung poll, dead DB
+connection, unloaded model). Add a self-check that verifies the essentials — polling alive, Postgres
+reachable, Ollama responding, last tick recent — and self-heals or pings the chat on failure, plus a
+`/status` command reporting uptime, model, last briefing, pending reminders, and dependency health.
+An assistant you trust with reminders is worse than useless when it's quietly dead, and right now
+silence looks identical to "nothing to say." **Small.**
+
+**Promoted (2026-07-21):** she has already lived through a silently-dead bot, and until this exists
+"Mochi has nothing to say" and "Mochi is down" look identical from her phone. Small effort, direct
+trust impact.
+
+### 5. Re-enable the email signal scanner (the flagship)
+The headline feature — spot a purchase, remind her before the return window closes — is switched
+**off** because early scans were noisy. It now has dedup, a require-due-date filter, per-scan caps,
+go-forward-only baselining, an approval ask, and the context fix that improved extraction. Turn it on
+in shadow mode first (log detections without pushing), hand-check precision for a few days, tighten,
+then enable the proactive ask with `/pause` as the kill switch. It's the differentiator that motivated
+the project, currently dormant, and the only feature that creates value with zero effort from her.
+**Depends on *Let a task be retired*** — turning noisy proactivity back on before obsolescence can
+be stated once and respected everywhere repeats the failure that made her stop. A demotion by
+dependency, not by value. **Medium — mostly tuning and judgement, not new code.**
+
+### 6. Voice messages (local transcription)
 Handle Telegram voice notes: download the audio, transcribe locally with `whisper.cpp`/`faster-whisper`
 (base model is plenty for short notes), feed the text through the normal turn path. Strictly local —
 audio is personal data, so it never leaves the machine. This is the biggest everyday UX upgrade on a
 phone: capturing a reminder while walking is exactly where typing loses, and it's what makes an
 assistant habitual rather than occasional. **Medium, $0.**
-
-### 6. Try a newer same-size local model
-The 2026-07 finding was that *context*, not model capability, was the real bottleneck — so the model
-choice deserves a fair re-test. Build 8k variants of one or two modern 7–8B candidates, A/B them with
-`verify_firing.py` + `verify_scenarios.py` at equal context, and compare firing, coherence, and
-tokens/sec; adopt only on measured improvement (`LOCAL_MODEL` is a one-line switch). Potentially a
-large quality gain for **$0**, and it directly tests whether the ~$1.4k Mac mini is still needed.
-**Small — a few hours of measurement.**
 
 ### 7. Secret scanning in CI (a hard rule currently enforced by habit)
 Rule 5 — *secrets never leave the machine and never get committed* — is the **only hard-tier rule not
@@ -80,7 +102,15 @@ Stephanie before any test caught them. Add a smoke tier (`verify_smoke.sh`, or a
 full sequential run reserved for pre-push. It doesn't add coverage — it makes the coverage we already
 have cheap enough that the rule is actually followed mid-change instead of only at the end. **Small.**
 
-### 9. Measure answer *quality*, not just tool firing
+### 9. Try a newer same-size local model
+The 2026-07 finding was that *context*, not model capability, was the real bottleneck — so the model
+choice deserves a fair re-test. Build 8k variants of one or two modern 7–8B candidates, A/B them with
+`verify_firing.py` + `verify_scenarios.py` at equal context, and compare firing, coherence, and
+tokens/sec; adopt only on measured improvement (`LOCAL_MODEL` is a one-line switch). Potentially a
+large quality gain for **$0**, and it directly tests whether the ~$1.4k Mac mini is still needed.
+**Small — a few hours of measurement.**
+
+### 10. Measure answer *quality*, not just tool firing
 Every gate we have asks "did the right tool fire?" and "is the reply free of JSON?" — nothing asks
 "was the answer any good?". SOTA practice is eval-driven: a golden set of conversations scored by an
 LLM judge, gating changes on the score. Cheap here: reuse the existing free hosted model
@@ -88,14 +118,6 @@ LLM judge, gating changes on the score. Cheap here: reuse the existing free host
 properties (correct, grounded in the tool result, no invention, right tone), and add it to
 `verify_all.sh`. Without it, a change can quietly make replies worse while every gate stays green —
 the exact failure class that reached Stephanie before. **Medium.**
-
-### 10. Liveness heartbeat + `/status`
-launchd's `KeepAlive` restarts a process that *exits*, but not one that's wedged (hung poll, dead DB
-connection, unloaded model). Add a self-check that verifies the essentials — polling alive, Postgres
-reachable, Ollama responding, last tick recent — and self-heals or pings the chat on failure, plus a
-`/status` command reporting uptime, model, last briefing, pending reminders, and dependency health.
-An assistant you trust with reminders is worse than useless when it's quietly dead, and right now
-silence looks identical to "nothing to say." **Small.**
 
 ### 11. Nightly review pass (her own request)
 She asked for this directly: *"Can you run a nightly dream pass that checks for any mistakes or
@@ -106,14 +128,7 @@ changes she can approve. It converts her frustration into durable fixes instead 
 corrections, and it's the only item here that improves the system without her having to report a bug.
 **Medium.**
 
-### 12. Deeper memory & preferences (Phase 5)
-Build on #2 — there's no point structuring memory that isn't being captured. Add lightweight typed
-structure (person / preference / routine / project) with confidence and recency, surface it as a
-compact profile block in the system prompt rather than raw recall hits, and feed it into the briefing
-and replies. Mind the prompt budget: the persona already uses ~3,600 of the 8k window. This is the
-difference between a generic assistant and *hers*. **Medium.**
-
-### 13. Generalizable per-action approval layer
+### 12. Generalizable per-action approval layer
 Today the gate is ad-hoc: `create_draft` and `web_search` call `require_approval` directly and
 `render.render_proposal` switches per action. Promote it to a declared policy — a config map of
 action → {always ask / ask once then remember / never} with a renderer registry, so gating a new
@@ -121,16 +136,24 @@ action is a table entry rather than bespoke code — and extend it to currently-
 like calendar-event mirroring. Stephanie explicitly asked for "ask permission when doing stuff", and
 predictability is what makes a permission model trustworthy. **Medium.**
 
-### 14. Google Drive (read, quarantined)
+### 13. Google Drive (read, quarantined)
 Mirror the Gmail pattern exactly: least-privilege read-only scope, a search/read tool pair, bodies
 routed through the **quarantined reader** (never into the privileged agent), results
 `frame_untrusted`-wrapped, no write capability. The last major personal data source, and it
 strengthens the receipt/return flows. Now unblocked — tool count is no longer a constraint (~95
 prompt tokens per tool, ~3,200 of headroom). **Medium (new OAuth scope).**
 
-### 15. Email in the daily briefing
-Fold email signals into the morning digest once #3 is proven quiet. Currently excluded on purpose
+### 14. Email in the daily briefing
+Fold email signals into the morning digest once *Re-enable the email signal scanner* is proven quiet. Currently excluded on purpose
 because the scanner was the noisy part. **Small.**
+
+### 15. A coverage floor in CI
+`pytest-cov` already runs in CI but nothing fails on a drop, so coverage can erode silently — it
+sat at 78% before the last two passes moved it to ~82%. Add a `--cov-fail-under` threshold set just
+below current, and optionally run the one embedding-semantic test file too. Five lines of workflow
+config, blocked on nothing. (Split out of the old "self-hosted CI runner + coverage gate": bundling
+the free half with a half that needs ~$1.4k of hardware kept it artificially low on this list.)
+**Small.**
 
 ### 16. Speak MCP (Model Context Protocol)
 The original plan called for off-the-shelf MCP servers via `langchain-mcp-adapters`; we went direct
@@ -146,73 +169,128 @@ passed through the dual-LLM boundary. Route fetched pages through `quarantine` l
 matters more the moment we fetch *full* pages for richer answers; today the residual is bounded by
 no-send / gated-writes / local-only. **Medium.**
 
-### 18. Decision tracing / observability
-There is no way to answer "why did it do that last Tuesday?". `MessageLog` stores text but not the
-trajectory: which tools were in the bound subset, which fired, what came back, how long each took.
-SOTA is structured tracing (OpenTelemetry / Langfuse-style). A local-first version — one row per turn
-capturing the tool subset, calls, token counts and latency — makes regressions diagnosable after the
-fact instead of only reproducible live. Builds on the latency logging already shipped. **Small-medium.**
+### 18. Structured run records (turns *and* gate runs)
+There is no way to answer "why did it do that last Tuesday?", and no way to answer "is the gate
+getting worse?". Both are the same missing thing — a structured row per run — so build one writer with
+two surfaces:
 
-### 19. Gate-result history (so a slow decline is visible)
-Every `verify_all.sh` run is judged in isolation, so a *gradual* decline is invisible. Sampling makes
-this sharper: with `sample_check` a behavioural check can stay green while quietly needing three
-attempts where it once needed one, and nothing but human memory compares runs. Append one JSONL row
-per run — commit sha, timestamp, per-check name/verdict/`hits`/`attempts` — to a git-ignored
-`data/gate-history.jsonl`, and print a one-line diff against the previous run at the end. Turns "is
-this getting worse?" into a question answerable from data rather than recollection. Distinct from
-*Decision tracing / observability* below, which records production turns, not gate results. **Small.**
+- **Per production turn:** which tools were in the bound subset, which fired, what came back, latency,
+  token counts. `MessageLog` stores the text but not the trajectory. Builds on the latency logging
+  already shipped; SOTA equivalent is OpenTelemetry/Langfuse-style tracing.
+- **Per gate run:** commit sha, timestamp, and each check's verdict + `hits`/`attempts`, appended to a
+  git-ignored JSONL with a one-line diff against the previous run. This matters *because* of
+  `sample_check`: a behavioural check can now stay green while quietly needing three attempts where it
+  once needed one, and nothing but human memory compares runs.
 
-### 20. More search providers
+Makes regressions diagnosable after the fact instead of only reproducible live. **Small-medium.**
+
+### 19. More search providers
 Add SearXNG (self-hosted → fully local query routing, the privacy ideal) and Brave behind the existing
 seam; smarter result ranking. Switching is already one config value (`WEB_SEARCH_PROVIDER`). **Small each.**
 
-### 21. Constrained decoding + validated retry for tool calls
+### 20. Constrained decoding + validated retry for tool calls
 The quarantined reader already uses `json_schema` structured output; the main agent's tool calls
 don't — a malformed call just fails the turn. Small models benefit disproportionately from
 constrained decoding plus a single validate-and-retry. Cheap reliability that doesn't depend on
 getting a better model. **Small.**
 
-### 22. Interruptibility (cancel a running turn)
+### 21. Interruptibility (cancel a running turn)
 A turn can't be stopped once it starts — if Mochi misreads a message and begins building the wrong
 thing, Stephanie waits it out. A `/stop` command (plus ignoring superseded turns) is standard
 assistant UX and cheap here. **Small.**
 
-### 23. Alembic migrations
+### 22. Alembic migrations
 `init_db` is `create_all` + hand-written `ALTER`s, and `create_all` won't alter existing tables, so new
-columns are added by hand. Fine at this size, fragile as the schema grows — and #2/#7 will grow it.
+columns are added by hand. Fine at this size, fragile as the schema grows — and *Make memory real*
+and *Measure answer quality* will both grow it.
 **Medium, mostly one-time.**
 
-### 24. Checkpoint pruning
+### 23. Checkpoint pruning
 `PostgresSaver` writes a row per turn and nothing prunes it, so it grows unbounded. A periodic
 retention job (keep last N per thread / last M days). **Small.**
 
-### 25. Docker sandbox for generated code
+### 24. Docker sandbox for generated code
 `SubprocessSandbox` is best-effort — scrubbed env, cwd jail, best-effort `sandbox-exec` — not real
 isolation, and the builder executes model-generated code. The `DockerSandbox` drop-in was always the
 plan (better on the mini). **Medium.**
 
-### 26. Secrets at rest
+### 25. Secrets at rest
 `.env` holds the bot token and hosted API key in plaintext. Keychain was always the plan. **Small-medium.**
 
-### 27. Self-hosted CI runner + coverage gate
-Model behavior isn't gated on GitHub today (no Ollama in CI, by design). A self-hosted runner on the
-mini could run the full `verify_all.sh`; separately, add a coverage threshold now that `pytest-cov`
-runs in CI, and optionally run the one embedding-semantic test file there too. **Medium / small.**
-
-### 28. Doc bloat and drift
+### 26. Doc bloat and drift
 `docs/` is ~3,900 lines (`05-phase1-build.md` alone is 1,312). More importantly, this session found
 **three confidently-written conclusions that were wrong**, all downstream of one unmeasured config. Do
 a periodic "does this still match reality?" pass, and prefer linking measurements over restating them.
 **Small, recurring.**
 
-### 29. Mac mini + a larger local model
-Still the best raw quality lever — reliability, memory headroom, and it unlocks the self-hosted CI
-runner. Ranked last because it's ~$1.4k against a $0 budget and the context fix already delivered much
-of what it promised. Revisit after #5 says whether a free model swap gets there. **Hardware + a migration pass.**
+### 27. Mac mini + a larger local model (and the self-hosted gate runner)
+Still the best raw quality lever — reliability, memory headroom, and it's the only way to run the
+**full real-model gate in CI**: `verify_all.sh` can't run on GitHub (no Ollama, by design), so a
+self-hosted runner on the mini is the only path to gating model behavior automatically rather than by
+remembering to run it locally. Ranked last because it's ~$1.4k against a $0 budget and the context fix
+already delivered much of what it promised. Revisit after *Try a newer same-size local model* says
+whether a free model swap gets there. **Hardware + a migration pass.**
 
 ---
 
 ## ✅ Resolved (kept — the lessons still apply)
+
+### Repo-wide cleanup: lint config, the channel split, and a bug it exposed (2026-07-21)
+
+**Lint was running on ruff's defaults** (`E4,E7,E9,F`) — no import sorting, no dead arguments, no
+modernization. Committed a real rule set (`I,UP,B,SIM,C4,PERF,PIE,RET,ARG,RUF`, minus the ambiguous-
+unicode rules that would flag the deliberate en dashes) and fixed all **76** findings, including a
+duplicate `"your"` in the reminder-dedup stopword set, 28 `datetime.timezone.utc` → `datetime.UTC`,
+and 9 `(str, Enum)` → `StrEnum`. The enum change touches values persisted to Postgres, so it was
+verified by round-tripping `Fact`/`Goal`/`Task`/`Reminder` and reading the **raw** column values back:
+unchanged.
+
+**Method lesson — don't disable a noisy rule, look at where it fires.** The first plan dropped `ARG`
+entirely on a count of 180 hits. Grouping by directory showed **172 were in `tests/`** (stub
+signatures that must match what they replace) and only 8 in real code, all worth fixing. The answer
+was a `per-file-ignores` entry, not a global exclusion. Related: one "fix" — renaming an unused
+`chat_id` arg to `_chat_id` in a verify stub — would have **broken it at runtime**, because the
+caller passes that parameter by keyword. Underscore-renaming is only safe for positional args.
+
+**`telegram.py` was split** into `telegram_stream` / `telegram_commands` / `telegram_buttons` mixins
+over a slimmed core, reversing the earlier "deliberately not done" call (Stephanie's decision). What
+made it more than relocation: a `ChannelContract` Protocol in `channels/base.py` now states what the
+mixins may assume about each other, the three `[value]` single-element-list mutable cells in
+`_run_with_status` became `nonlocal`, `COMMANDS` became data so `run()` can't drift from what's
+implemented, and the duplicated user/assistant logging pair collapsed into `_log_turn`.
+
+**The split immediately paid for itself by exposing a live bug.** `telegram_buttons.py` came out at
+**21%** coverage — invisible while it shared a 670-line file with the well-tested streaming engine.
+Writing tests for it found that **pressing "⏰ Snooze" was broken**: the handler returned an ORM object
+from a closed session and then formatted `reminder.due_at`, raising `DetachedInstanceError`. The
+snooze was *written* and the confirmation *crashed*, so from her phone it looked like nothing
+happened. Confirmed pre-existing (code byte-identical to HEAD; reproduced through untouched modules).
+Fixed by reading the value inside the session — the pattern `_on_signal_button` already used.
+
+Coverage of `app/channels/` went **64% → 91%** (whole app **82% → 88%**); the suite went **205 → 232**
+tests. The split is what made that reachable: as one 670-line file it was a single 61% number, and the
+per-concern breakdown showed exactly where to aim (`telegram_buttons` 21%, `telegram_commands` 59%).
+
+**One more isolation bug fell out of it.** A new test asserting `/sent` reports "nothing has left the
+machine" failed against a real `HostedConsult` row — written by `verify_phase4b` minutes earlier.
+`conftest.clean_tables` truncated only *after* each test, so the first test of a run inherited whatever
+the verify scripts left in the shared scratch DB. Now truncates before and after.
+
+**Docs corrected where they contradicted the code:** `CLAUDE.md`'s repo-layout section was still a
+Phase 0 snapshot telling the next session to *create* `app/memory/`, `app/proactive/`, `app/builder/`
+et al — all shipped — and its "locked decisions" still claimed integrations go through MCP servers,
+when there is no MCP code in `app/` and Phase 2 deliberately went direct. A comment in the streaming
+code still said formatting only happened on the final edit, which stopped being true when mid-stream
+formatting shipped.
+
+**Future-work restructure:** merged the two memory items (one was explicitly a prerequisite of the
+other) and the two tracing items; split the CI item so the free coverage floor stopped inheriting the
+priority of a half that needs $1.4k of hardware; and reordered around **trust and habit** rather than
+capability, since usage collapsed 23 messages/day → 2 → silence. Task-retirement and the liveness
+heartbeat moved up; the email scanner moved *below* task-retirement, because re-enabling noisy
+proactivity before "that's over" exists would repeat the failure that ended her usage.
+**Every cross-reference is now by name** — two more `#N` references had already rotted into pointing
+at unrelated entries.
 
 ### The context window was starving generation (2026-07-20)
 Ollama's default `num_ctx` is **4096**, but a turn's prompt measured **~3,800–4,050 tokens**. `num_ctx`

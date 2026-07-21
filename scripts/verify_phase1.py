@@ -18,7 +18,6 @@ than just being read as reassuring output.
 
 import uuid
 
-
 from scripts._verify_lib import (
     bootstrap_env,
     check,
@@ -36,9 +35,6 @@ from sqlmodel import Session, select  # noqa: E402
 from app.agent.graph import build_agent  # noqa: E402
 from app.memory.db import get_engine  # noqa: E402
 from app.memory.models import Goal, Task  # noqa: E402
-
-
-
 
 
 def fresh_thread() -> dict:
@@ -83,10 +79,10 @@ def main() -> None:
     # local extraction that runs every turn, so facts get captured even when the model
     # doesn't fire remember_fact above. Should far exceed the tool-firing rate — AND it
     # stores here, so the recall checks below then succeed (proving the fix end-to-end).
-    from app.config import settings as _settings  # noqa: E402
-    from app.memory import extract as fact_extract  # noqa: E402
-    from app.memory import store as _store  # noqa: E402
-    from app.memory.models import Provenance  # noqa: E402
+    from app.config import settings as _settings
+    from app.memory import extract as fact_extract
+    from app.memory import store as _store
+    from app.memory.models import Provenance
 
     extracted = 0
     with Session(get_engine()) as session:
@@ -135,8 +131,9 @@ def main() -> None:
     goals_before, tasks_before = goal_task_counts()
     goal_ok = task_ok = False
     goals_after, tasks_after = goals_before, tasks_before
-    attempt = 0
-    for attempt in range(1, 4):
+    attempts = 0
+    while attempts < 3 and not (goal_ok and task_ok):
+        attempts += 1
         agent.invoke(
             {"messages": [HumanMessage("add a goal to run a 10k, and a task to buy running shoes")]},
             fresh_thread(),
@@ -144,10 +141,8 @@ def main() -> None:
         goals_after, tasks_after = goal_task_counts()
         goal_ok = goals_after > goals_before
         task_ok = tasks_after > tasks_before
-        if goal_ok and task_ok:
-            break
-    check("add_goal wrote a row", goal_ok, f"{goals_before} -> {goals_after} (attempt {attempt}/3)")
-    check("add_task wrote a row", task_ok, f"{tasks_before} -> {tasks_after} (attempt {attempt}/3)")
+    check("add_goal wrote a row", goal_ok, f"{goals_before} -> {goals_after} ({attempts}/3 attempts)")
+    check("add_task wrote a row", task_ok, f"{tasks_before} -> {tasks_after} ({attempts}/3 attempts)")
 
     # --- 4. Context-window management: exceed the buffer, confirm trimming
     # + a populated summary, via a lowered threshold so this doesn't need a

@@ -2,7 +2,7 @@
 caching, DST-correct recurrence, and the action rate cap. All deterministic, offline.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
@@ -11,7 +11,7 @@ from app.agent.tools import google_tools
 from app.integrations import google_calendar, google_gmail
 from app.proactive import reminders
 
-UTC = timezone.utc
+UTC = UTC
 
 
 # --- #1 untrusted-content framing ------------------------------------------

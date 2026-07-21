@@ -8,7 +8,7 @@ The one thing these can't prove is that the *real* 7B extracts well from messy e
 """
 
 import base64
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from langchain_core.runnables import RunnableBinding
@@ -23,7 +23,7 @@ from app.integrations import google_gmail
 from app.memory.models import EmailSignal, ProcessedEmail, Reminder, SignalStatus
 from app.proactive import email_signals, jobs, reminders
 
-UTC = timezone.utc
+UTC = UTC
 
 
 # --- helpers ----------------------------------------------------------------
@@ -35,7 +35,7 @@ def session(engine):
 
 
 def _sig(**kw) -> ExtractedSignal:
-    base = dict(is_actionable=True, signal_type="return", title="Rain jacket from REI")
+    base = {"is_actionable": True, "signal_type": "return", "title": "Rain jacket from REI"}
     base.update(kw)
     return ExtractedSignal(**base)
 

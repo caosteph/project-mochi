@@ -123,7 +123,7 @@ class _TextExtractor(HTMLParser):
         self._parts: list[str] = []
         self._skip = 0
 
-    def handle_starttag(self, tag: str, attrs) -> None:
+    def handle_starttag(self, tag: str, _attrs) -> None:  # signature fixed by HTMLParser
         if tag in ("script", "style", "head"):
             self._skip += 1
 

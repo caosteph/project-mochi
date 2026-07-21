@@ -168,7 +168,8 @@ Message your bot on Telegram — the reply is generated entirely on your own mac
 ```
 app/
   agent/        LangGraph graph, persona, tools, router, quarantined reader, tool selection
-  channels/     Telegram adapter (+ a Channel interface for future transports)
+  channels/     Telegram adapter — core + streaming/commands/buttons mixins, rendering
+                (and a Channel interface + contract for future transports)
   integrations/ Google auth / Calendar / Gmail
   memory/       SQLModel models, embeddings, hybrid recall, fact extraction
   proactive/    reminders, email-signal scanning, the daily briefing, the job scheduler
@@ -186,7 +187,9 @@ CLAUDE.md       orientation + the non-negotiable safety rules — read this firs
 
 Two layers, because they catch different things:
 
-- **`tests/`** — a fast offline `pytest` suite that mocks the model + Google. Proves the plumbing.
+- **`tests/`** — a fast offline `pytest` suite (232 tests, ~16s) that mocks the model + Google.
+  Proves the plumbing. It earns its keep: writing the channel-button tests is what surfaced a live
+  bug where pressing "Snooze" saved the change but crashed before confirming it.
 - **`scripts/verify_*.py`** — real-model checks that drive the *actual* agent (`build_agent()`) and
   the real 7B end-to-end, asserting *behavior* (the right tool fires, no raw-JSON dumps, injection
   is refused). The local model is stochastic, so these use soft floors, and a behavioural check that

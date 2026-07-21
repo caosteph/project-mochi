@@ -86,10 +86,10 @@ def test_refuses_too_personal(engine, monkeypatch):
 
 
 def test_ask_path_builds_generic_only_prompt(engine, monkeypatch):
-    from app.channels import telegram
+    from app.channels import telegram, telegram_commands
 
     monkeypatch.setattr(router, "hosted_available", lambda: False)  # local path, no audit
-    monkeypatch.setattr(telegram, "get_engine", lambda: engine)
+    monkeypatch.setattr(telegram_commands, "get_engine", lambda: engine)
     fake = FakeModel("4")
     monkeypatch.setattr(router, "chat_model", lambda *a, **k: fake)
 

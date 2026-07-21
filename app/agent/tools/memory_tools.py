@@ -4,7 +4,7 @@ ToolMessage to the model instead of crashing the graph, so the model can
 self-correct (e.g. retry with a valid date format).
 """
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from langchain_core.tools import tool
 from sqlmodel import Session
@@ -18,7 +18,7 @@ def _parse_date(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.combine(date.fromisoformat(value), datetime.min.time(), tzinfo=timezone.utc)
+        return datetime.combine(date.fromisoformat(value), datetime.min.time(), tzinfo=UTC)
     except ValueError as exc:
         raise ValueError(f"Invalid date {value!r}; expected YYYY-MM-DD") from exc
 

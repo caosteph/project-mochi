@@ -10,14 +10,14 @@ pass SENSITIVE (always local); only the de-identified `consult_expert` payload p
 NON_SENSITIVE. So the "sensitive → local" guarantee lives here, in one auditable place.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 from langchain_openai import ChatOpenAI
 
 from app.config import settings
 
 
-class Sensitivity(str, Enum):
+class Sensitivity(StrEnum):
     SENSITIVE = "sensitive"          # personal/origin-tagged data → local, always
     NON_SENSITIVE = "non_sensitive"  # generic/de-identified → may use hosted (if opted in)
 

@@ -44,12 +44,24 @@ def engine():
     return eng
 
 
+_TRUNCATE = text(
+    "TRUNCATE fact, goal, task, reminder, event, messagelog, "
+    "purchase, emailsignal, processedemail, ingeststate, hostedconsult, websearch "
+    "RESTART IDENTITY CASCADE"
+)
+
+
 @pytest.fixture(autouse=True)
 def clean_tables(engine):
+    """Truncate before AND after.
+
+    After alone isn't enough: the scratch DB is shared with `scripts/verify_*.py`, which leave
+    rows behind, so the first test of a run inherited them. That surfaced as a test asserting
+    "nothing has been sent externally" failing against a HostedConsult row written by
+    verify_phase4b minutes earlier — a real isolation gap, not a flake.
+    """
+    with engine.begin() as conn:
+        conn.execute(_TRUNCATE)
     yield
     with engine.begin() as conn:
-        conn.execute(text(
-            "TRUNCATE fact, goal, task, reminder, event, messagelog, "
-            "purchase, emailsignal, processedemail, ingeststate, hostedconsult, websearch "
-            "RESTART IDENTITY CASCADE"
-        ))
+        conn.execute(_TRUNCATE)

@@ -16,7 +16,7 @@ compute, so we process at most N new messages and let the rest wait for the next
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 
 import dateparser
@@ -63,7 +63,7 @@ def _parse_due(raw: str) -> datetime | None:
         dt = dt.replace(hour=10, minute=0, second=0, microsecond=0)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=get_localzone())
-    return dt.astimezone(timezone.utc)
+    return dt.astimezone(UTC)
 
 
 def resolve_due_date(
@@ -73,7 +73,7 @@ def resolve_due_date(
     otherwise, for a `return` with no stated date, a simple default window from when
     the email arrived; otherwise None (no date → the reminder is still offered, just
     without a firm time — jobs.py handles the no-date case)."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     if extracted_due:
         parsed = _parse_due(extracted_due)
         if parsed is not None:
@@ -93,7 +93,7 @@ def _received_at(email: dict) -> datetime | None:
     except (TypeError, ValueError):
         return None
     if dt is not None and dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -145,7 +145,7 @@ def ingest_signals(session: Session, *, service=None, extractor=None, now: datet
     """Scan recent mail and record any new actionable signals. Returns the newly
     created EmailSignals (status='detected'). On the first-ever run, baseline-skips
     the existing inbox (go-forward-only) and returns []."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     extractor = extractor or quarantine.extract_signal
 
     ids = google_gmail.search_message_ids(_scan_query(), max_results=_SEARCH_MAX, service=service)

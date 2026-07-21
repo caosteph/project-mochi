@@ -11,7 +11,7 @@ source; it can be folded in once it's proven quiet.
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session, select
 from tzlocal import get_localzone
@@ -97,7 +97,7 @@ def _goals_section(session: Session) -> list[str]:
 def build_briefing(session: Session, *, now: datetime | None = None, service=None) -> str:
     """The morning digest as one plain-text message — deterministic, no model.
     Empty sections are omitted; a genuinely empty day gets a short, warm line."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     header = f"☀️ Morning, Stephanie — {now.astimezone(get_localzone()):%A, %b %-d}."
 
     blocks = [

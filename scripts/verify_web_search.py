@@ -8,7 +8,14 @@ Run (Ollama serving the local model):
     DATABASE_URL=postgresql://localhost/personal_agent_test PYTHONPATH=. uv run python scripts/verify_web_search.py
 """
 
-from scripts._verify_lib import bootstrap_env, check, rate, require_scratch_db, skip, summarize_and_exit
+from scripts._verify_lib import (
+    bootstrap_env,
+    check,
+    rate,
+    require_scratch_db,
+    skip,
+    summarize_and_exit,
+)
 
 require_scratch_db()
 bootstrap_env()

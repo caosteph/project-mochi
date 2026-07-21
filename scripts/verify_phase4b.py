@@ -18,9 +18,6 @@ from app.agent import router  # noqa: E402
 from app.builder import codegen, docs, sandbox, serve, workspace  # noqa: E402
 
 
-
-
-
 def main() -> None:
     sb = sandbox.SubprocessSandbox()
     proj = workspace.create_project("verify-4b")

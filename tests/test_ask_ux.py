@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from sqlmodel import Session, select
 
 from app.agent import router
-from app.channels import telegram
+from app.channels import telegram, telegram_commands
 from app.config import settings
 from app.memory.models import HostedConsult
 
@@ -111,7 +111,7 @@ def test_reply_to_known_ask_answer_routes_to_followup(monkeypatch):
 
 def test_followup_scrubs_audits_and_extends_thread(engine, monkeypatch):
     chan = _chan()
-    monkeypatch.setattr(telegram, "get_engine", lambda: engine)
+    monkeypatch.setattr(telegram_commands, "get_engine", lambda: engine)
     monkeypatch.setattr(router, "hosted_available", lambda: True)
     monkeypatch.setattr(settings, "redact_terms", "Stephanie")
     monkeypatch.setattr(settings, "redact_max_hits", 4)
@@ -154,7 +154,7 @@ def test_followup_refuses_when_hosted_off(monkeypatch):
 
 def test_ask_while_replying_includes_scrubbed_context(engine, monkeypatch):
     chan = _chan()
-    monkeypatch.setattr(telegram, "get_engine", lambda: engine)
+    monkeypatch.setattr(telegram_commands, "get_engine", lambda: engine)
     monkeypatch.setattr(router, "hosted_available", lambda: True)
     monkeypatch.setattr(settings, "redact_terms", "")
     fake = FakeModel("answer")

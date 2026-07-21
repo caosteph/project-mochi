@@ -9,9 +9,16 @@ Run:
 
 import asyncio
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from scripts._verify_lib import bootstrap_env, check, rate, require_scratch_db, skip, summarize_and_exit
+from scripts._verify_lib import (
+    bootstrap_env,
+    check,
+    rate,
+    require_scratch_db,
+    skip,
+    summarize_and_exit,
+)
 
 require_scratch_db()
 bootstrap_env()
@@ -24,14 +31,16 @@ from app.memory.db import get_engine, init_db  # noqa: E402
 from app.memory.models import Purchase  # noqa: E402
 from app.proactive import jobs, reminders  # noqa: E402
 
-UTC = timezone.utc
+UTC = UTC
 
 
 class RecordingBot:
     def __init__(self):
         self.sent = []
 
-    async def send_message(self, chat_id, text, reply_markup=None, **kw):
+    # Parameter NAMES are load-bearing: jobs.py calls this with chat_id=/reply_markup= keywords,
+    # so they can't be underscore-prefixed to silence ARG002 the way a positional stub could.
+    async def send_message(self, chat_id, text, reply_markup=None, **kw):  # noqa: ARG002
         self.sent.append(text)
 
 

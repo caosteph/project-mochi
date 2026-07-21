@@ -242,29 +242,34 @@ the hard tier, not the persona.
   recall + the LangGraph checkpointer.
 - **Channel:** Telegram now (`python-telegram-bot`, long-polling); a `Channel` interface keeps
   iMessage/BlueBubbles a drop-in for Phase 9.
-- **Integrations:** off-the-shelf MCP servers via `langchain-mcp-adapters` (Phase 2+).
+- **Integrations:** **direct API clients**, not MCP. The original plan called for off-the-shelf MCP
+  servers via `langchain-mcp-adapters`; Phase 2 went direct with `google-api-python-client` instead
+  (fewer moving parts, least-privilege scopes we control — reasoned in `docs/06-phase2-build.md`).
+  There is no MCP code in `app/`. Adopting an MCP *client* later is future work, not current fact.
 
 ## Repo layout
 
 ```
 personal-agent/
-  pyproject.toml        # deps; treated as an application (tool.uv package = false)
+  pyproject.toml        # deps + ruff/pytest config; an application (tool.uv package = false)
   .env.example          # template — copy to .env, fill in, never commit .env
-  CLAUDE.md             # this file
-  README.md             # human quickstart
   app/
     config.py           # pydantic-settings; LOCAL_ONLY switch; whitelisted chat_id
-    main.py             # entrypoint: python -m app.main
-    agent/graph.py      # LangGraph graph + Postgres checkpointer + local model
-    channels/base.py    # Channel interface
-    channels/telegram.py# long-polling adapter + chat_id whitelist
-  data/                 # local state / tokens (git-ignored)
-  workspace/            # agent-built artifacts (git-ignored)
+    main.py             # entrypoint (python -m app.main) + the single-instance flock
+    agent/              # graph, persona, tools/, router, quarantine, sanitize, tool_select
+    channels/           # base (Channel + ChannelContract), render, telegram{,_stream,
+                        #   _commands,_buttons}
+    integrations/       # google_auth / google_calendar / google_gmail / web_search
+    memory/             # models, db, store, embeddings, extract
+    proactive/          # reminders, jobs, email_signals, briefing, text_match
+    builder/            # sandbox, codegen, docs, serve, workspace
+  data/ workspace/      # local state / tokens / built artifacts (git-ignored)
+  docs/ scripts/ tests/ launchd/ ollama/ .github/
 ```
 
-Later phases add `app/memory/`, `app/integrations/`, `app/proactive/`, `app/builder/`,
-`app/agent/router.py`, and `app/agent/confirm.py`. Create these when their phase starts —
-don't stub them out empty. See `00-plan.md` for the target tree.
+Every one of these exists — Phases 0–8 are shipped. `README.md` carries the same tree with a
+one-line gloss per directory; if you're changing structure, update both. `00-plan.md` has the
+longer-term target.
 
 ## Running it
 

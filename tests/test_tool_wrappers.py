@@ -6,7 +6,7 @@ returns a plain-language string (never a raw object or JSON, which is the failur
 reached Stephanie before). The layer underneath is mocked; its behaviour is tested elsewhere.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlmodel import Session
@@ -78,7 +78,7 @@ def test_add_goal_and_task_pass_through_and_validate_dates(monkeypatch):
 def test_add_reminder_passes_args_and_confirms_the_time(monkeypatch, engine):
     seen = {}
 
-    due = datetime(2026, 7, 21, 15, 0, tzinfo=timezone.utc)
+    due = datetime(2026, 7, 21, 15, 0, tzinfo=UTC)
 
     def fake_create(session, *, text, when, recurrence=None, duration_minutes=None, **kw):
         seen.update(text=text, when=when, recurrence=recurrence, duration_minutes=duration_minutes)
@@ -102,7 +102,7 @@ def test_add_reminder_passes_args_and_confirms_the_time(monkeypatch, engine):
 def test_add_reminder_says_so_instead_of_silently_duplicating(monkeypatch, engine):
     """When dedup returns an existing reminder, the reply must say it was ALREADY set —
     silently replying 'done, I'll remind you' is how 8 copies of one task went unnoticed."""
-    due = datetime(2026, 7, 21, 8, 0, tzinfo=timezone.utc)
+    due = datetime(2026, 7, 21, 8, 0, tzinfo=UTC)
 
     def already_exists(session, *, text, when, **kw):
         with Session(engine) as s:

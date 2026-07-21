@@ -3,7 +3,7 @@ Drives the real logic against the scratch DB + a recording mock bot.
 """
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -15,7 +15,7 @@ from app.memory.db import init_db
 from app.memory.models import Purchase, Reminder, ReminderStatus
 from app.proactive import jobs, reminders
 
-UTC = timezone.utc
+UTC = UTC
 
 
 @pytest.fixture(autouse=True)

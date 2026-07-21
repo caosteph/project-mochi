@@ -8,12 +8,10 @@ constitution rule #4 (untrusted content is data the privileged agent never inges
 """
 
 import base64
-
 from unittest.mock import MagicMock
 
 from app.agent import email_read, quarantine
 from app.agent.tools import google_tools
-
 
 # --- mocks ------------------------------------------------------------------
 

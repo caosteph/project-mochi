@@ -7,15 +7,14 @@ deliver" rules (MarkdownV2 conversion + plain-text chunking).
 
 from app.agent.tools import ALL_TOOLS
 from app.channels.render import (
-    balance_markdown,
     CHUNK_SIZE,
     TG_LIMIT,
+    balance_markdown,
     chunk,
     render_proposal,
     status_for_tool,
     to_markdown_v2,
 )
-
 
 # --- status breadcrumbs -----------------------------------------------------
 

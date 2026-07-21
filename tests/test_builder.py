@@ -156,8 +156,7 @@ class _Bot:
 
 
 def _chan():
-    c = telegram.TelegramChannel.__new__(telegram.TelegramChannel)
-    return c
+    return telegram.TelegramChannel.__new__(telegram.TelegramChannel)
 
 
 def _update(text):

@@ -9,7 +9,7 @@ simplification, not an oversight; revisit if/when real usage data exists.
 
 import math
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import text
 from sqlmodel import Session, select
@@ -96,7 +96,7 @@ def recall(session: Session, *, query: str, k: int | None = None) -> list[Recall
     for fact, rank in kw_hits:
         by_id.setdefault(fact.id, {"fact": fact})["keyword"] = rank / max_kw_rank
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     scored = []
     for entry in by_id.values():
         fact = entry["fact"]

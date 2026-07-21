@@ -8,7 +8,7 @@ the model just decides *to* set a reminder and hands over the phrase.
 
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import dateparser
 from dateutil.relativedelta import relativedelta
@@ -16,7 +16,6 @@ from sqlmodel import Session, select
 from tzlocal import get_localzone
 
 from app.config import settings
-from app.proactive import text_match
 from app.memory.models import (
     DEADLINE_SIGNAL_TYPES,
     EmailSignal,
@@ -28,6 +27,7 @@ from app.memory.models import (
     SignalStatus,
     SignalType,
 )
+from app.proactive import text_match
 
 log = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ def _normalize_when(when: str) -> str:
 def parse_when(when: str, recurrence: str | None = None, *, now: datetime | None = None) -> tuple[datetime, str | None]:
     """Return (due_at UTC, recurrence-or-None). Raises ReminderParseError if the
     phrase can't be resolved to a sensible future time."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     rec = recurrence or _infer_recurrence(when)
     if rec is not None and rec not in _RECURRENCES:
         raise ReminderParseError(f"unknown recurrence {recurrence!r}")
@@ -115,7 +115,7 @@ def parse_when(when: str, recurrence: str | None = None, *, now: datetime | None
         raise ReminderParseError(f"couldn't understand the time {when!r}")
     if dt.tzinfo is None:
         dt = dt.astimezone()
-    dt = dt.astimezone(timezone.utc)
+    dt = dt.astimezone(UTC)
 
     if rec:
         # Anchor a recurring reminder to its next occurrence strictly in the future.
@@ -139,9 +139,9 @@ def next_occurrence(due_at: datetime, recurrence: str, now: datetime) -> datetim
         Recurrence.MONTHLY.value: relativedelta(months=1),
     }[recurrence]
     local = due_at.astimezone(get_localzone())
-    while local.astimezone(timezone.utc) <= now:
+    while local.astimezone(UTC) <= now:
         local = local + step
-    return local.astimezone(timezone.utc)
+    return local.astimezone(UTC)
 
 
 # --- creation --------------------------------------------------------------
@@ -287,7 +287,7 @@ def create_return_reminder(
     return_by or a reminder already exists for this purchase."""
     if purchase.return_by is None:
         return None
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     existing = session.exec(
         select(Reminder).where(Reminder.purchase_id == purchase.id)
     ).first()
@@ -329,7 +329,7 @@ def create_from_signal(
     BEFORE the due date (clamped to now), while appointment/delivery fire AT it. A
     signal with no due date defaults to a next-day nudge. Idempotent: re-approving a
     signal returns its existing reminder (linked via signal.reminder_id)."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     if signal.reminder_id is not None:
         existing = session.get(Reminder, signal.reminder_id)
         if existing is not None:
@@ -414,7 +414,7 @@ def snooze(session: Session, reminder_id: int, *, now: datetime | None = None) -
     reminder = session.get(Reminder, reminder_id)
     if reminder is None:
         return None
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     reminder.due_at = now + timedelta(days=settings.reminder_snooze_days)
     reminder.status = ReminderStatus.PENDING.value
     reminder.sent_at = None

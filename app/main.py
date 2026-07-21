@@ -34,7 +34,9 @@ def acquire_single_instance_lock(path: Path | str | None = None) -> bool:
     global _lock_handle
     lock_path = Path(path) if path is not None else LOCK_PATH
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    handle = open(lock_path, "w")
+    # Deliberately not a context manager (ruff SIM115): the handle must outlive this
+    # function — closing it would drop the flock and let a second instance start.
+    handle = open(lock_path, "w")  # noqa: SIM115
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:

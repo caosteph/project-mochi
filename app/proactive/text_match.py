@@ -18,7 +18,7 @@ STOP_WORDS = {
     # generic email / notification nouns
     "email", "message", "meeting", "offer", "chat", "discussion", "follow", "followup", "update",
     "notification", "alert", "due", "payment", "found", "available", "new", "confirm",
-    "confirmation", "order", "package", "seats", "row", "your", "info", "details", "class",
+    "confirmation", "order", "package", "seats", "row", "info", "details", "class",
 }
 
 

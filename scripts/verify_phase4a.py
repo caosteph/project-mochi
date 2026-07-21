@@ -21,10 +21,6 @@ from app.agent import router, sanitize  # noqa: E402
 from app.agent.router import Sensitivity  # noqa: E402
 from app.config import settings  # noqa: E402
 
-
-
-
-
 # Personal questions with KNOWN identifiers we expect to be gone after de-identification.
 _DEID_CASES = [
     ("My name is Stephanie Cao — help me write a short professional bio.", ["stephanie", "cao"]),
