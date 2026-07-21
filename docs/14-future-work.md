@@ -8,6 +8,27 @@ status is in `CLAUDE.md`. Ordered within each group by leverage.
 > `scripts/verify_firing.py --baseline <tools>` (HEAD-vs-working firing diff) before shipping —
 > the 7B regresses silently. See CLAUDE.md's testing guidance.
 
+## Top 10 by impact (2026-07-20)
+
+Ranked by value × feasibility under the real constraints ($0 budget, 16GB M2 Air, solo, daily use).
+Details for each are in the sections below.
+
+| # | Item | Why it's ranked here |
+|---|------|----------------------|
+| 1 | **Automated Postgres backups** | 34 reminders + memory live in one DB with **zero backups**, on a machine that already crashed once. Losing it loses the entire point of the project. ~20 lines. |
+| 2 | **Make memory actually accumulate** | The premise is "holds long-term memory about her life" — the DB has **1 fact from 89 messages**. Without this it's a chatbot with tools, not a personal agent. |
+| 3 | **Re-enable the email signal scanner** | The *flagship* feature (spot a purchase → remind before the return window closes) is **off** because it was noisy. It now has dedup, require-due-date, per-scan caps, approval gating, and the context fix. |
+| 4 | **Voice messages (local Whisper)** | Biggest daily UX win on a phone — talking beats typing for reminders/notes. Runs locally, $0, fits the privacy model. |
+| 5 | **Try a newer same-size model** | Context was the real bottleneck, not the model. A modern 7–8B may give Mac-mini-class gains for **$0** within the same memory budget. Cheap to A/B with `verify_firing.py`. |
+| 6 | **Liveness heartbeat + `/status`** | `KeepAlive` catches crashes, not a *wedged* process. Silence is indistinguishable from "nothing to say". |
+| 7 | **Deeper memory & preferences (P5)** | Pairs with #2 — the thing that makes it feel like *hers* (people, preferences, recurring context) instead of generic. |
+| 8 | **Generalizable approval layer** | Explicitly requested. Today it's ad-hoc per action; a config-driven policy makes "ask before acting" consistent = trustworthy. |
+| 9 | **Shared verify lib + split `telegram.py`** | Measured duplication (`check()`×9, `fires()`×4 across 1,289 lines) and a 705-LOC/62%-covered module. Pays back every future phase. |
+| 10 | **Google Drive (read, quarantined)** | The last big personal data source — and tool count is no longer a constraint. |
+
+*Honorable mention:* **Mac mini + larger model** — still the best raw quality lever, but it's ~$1.4k
+against a $0 budget, and the context fix just delivered much of what it promised.
+
 ---
 
 ## ✅ RESOLVED — the context window was starving generation (2026-07)
@@ -148,5 +169,35 @@ dead). Shipped:
 - **Self-hosted CI runner (Mac mini):** run the full real-model `scripts/verify_all.sh` in CI once
   the mini exists — closes the gap that model-behavior isn't gated on GitHub today. Medium.
 - **Coverage gate:** `pytest-cov` runs in CI now; add a threshold once a baseline is known. Small.
-- **Optional Ollama+nomic in CI:** to also run the 2 embedding-semantic tests (`test_memory_recall`)
-  in CI rather than only locally. Small, if fuller coverage is wanted.
+- **Optional Ollama+nomic in CI:** to also run the 1 embedding-semantic test file
+  (`test_memory_recall`) in CI rather than only locally. Small, if fuller coverage is wanted.
+
+## Cleanup & tech debt (measured 2026-07-20, whole-repo pass)
+
+Nothing here is urgent — the repo is in good shape (no TODO/FIXME debt, no unused dependencies, ruff
+clean, 78% coverage). These are the real, evidence-backed opportunities:
+
+- **Verify-script boilerplate (biggest duplication).** Across 1,289 lines of `scripts/verify_*.py`:
+  `check()` is reimplemented in **9** scripts, `fires()` in **4**, the scratch-DB guard in **7**, and
+  the Telegram env placeholders in **10**. → extract `scripts/_verify_lib.py` (check/fires/rate/guard/
+  env-bootstrap). Cuts a few hundred lines and makes floors + output consistent. *Small, high payoff.*
+- **`telegram.py` is doing too much** — **705 LOC, 62% coverage**, by far the largest module. It holds
+  transport + streaming, ~10 command handlers, callback buttons, Markdown rendering, the approval
+  renderer, and the audit view. → split (e.g. `channels/telegram/{app,commands,streaming,render}.py`).
+  Would also make the untested 38% reachable. *Medium.*
+- **Duplicated `_fmt_event`** in `app/agent/tools/google_tools.py` and `app/proactive/briefing.py` —
+  near-identical (start parsing, all-day handling, location), differing only in date-vs-time format
+  and bullet glyph. → one helper with a `style`/`with_date` flag. *Small.*
+- **Dead code:** `app/proactive/jobs.py:is_enabled()` is defined but never called (the module reads
+  `_enabled` directly). → delete it, or use it and stop reading the global in two ways. *Trivial.*
+- **Coverage holes worth closing** (TOTAL 78%): `app/warmup.py` **0%** (and it now carries real
+  logic — keep-warm + tool-vector warming), `app/agent/tools/reminder_tools.py` **34%**,
+  `memory_tools.py` **40%**, `app/builder/serve.py` **35%**. The tool wrappers are thin but they're
+  the layer the model actually calls. *Small each.*
+- **Doc bloat / drift.** `docs/` is 3,876 lines, with `05-phase1-build.md` alone at 1,312. More
+  importantly, this session found **three confidently-written conclusions that were wrong** (the
+  "imperative derails the 7B" note, "create_draft is tool-count-diluted", the "tool-count wall") —
+  all downstream of one unmeasured config. → periodic "does this doc still match reality?" pass, and
+  prefer linking measurements over restating them. *Small, recurring.*
+- **Secrets at rest:** `.env` holds the bot token + Groq key in plaintext. Keychain on the Mac mini
+  was always the plan. *Small-medium.*
