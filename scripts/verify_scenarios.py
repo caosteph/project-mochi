@@ -15,7 +15,15 @@ Run:
 import re
 import uuid
 
-from scripts._verify_lib import bootstrap_env, check, rate, require_scratch_db, summarize_and_exit
+from scripts._verify_lib import (
+    bootstrap_env,
+    check,
+    fires,
+    rate,
+    require_scratch_db,
+    summarize_and_exit,
+    tool_calls,
+)
 
 require_scratch_db()
 bootstrap_env()
@@ -26,6 +34,14 @@ from app.agent.graph import build_agent  # noqa: E402
 
 # A code-fenced JSON block, or a raw {"key": … — the exact leak from the bad conversation.
 _JSON_DUMP = re.compile(r'```json|\{\s*"[\w]+"\s*:')
+
+# Narrating an intention instead of acting on it. From her transcripts: "### Checking Your
+# Calendar: I'll check..." — which is why she asked "why is it always stale".
+_NARRATES = re.compile(r"i'?ll check|let'?s start by checking|let me check|###\s*checking", re.I)
+
+# Markdown-header / numbered-list dumping. The persona says lead with the answer and don't dump
+# lists; the real transcripts are full of "### Checking Your Calendar:" followed by 1. 2. 3.
+_DUMPS = re.compile(r"^###\s|\n###\s|\n\s*1\.\s.*\n\s*2\.\s", re.S)
 
 
 def reply_text(agent, prompt: str) -> str:
@@ -67,6 +83,34 @@ def main() -> None:
     check("replies are plain prose, no JSON dump", clean >= 2, f"{clean}/{len(coh)} clean | {replies[0][:70]!r}")
     on_topic = sum("reminder" in t.lower() for t in replies if t)
     check("stays on-topic (talks about reminders)", on_topic >= 1, f"{on_topic}/{len(coh)}")
+
+    # 3. Regressions taken verbatim from her real Telegram history (see docs/14-future-work.md).
+    #    Everything above asks "did the right tool fire"; these ask the questions her complaints
+    #    actually raise — does it act, does it stay quiet, does it shut up.
+
+    #    "where are you getting your information from and why is it always stale"
+    cal_reply = reply_text(agent, "what's on my calendar today?")
+    check("answers the calendar instead of promising to check it",
+          not _NARRATES.search(cal_reply), f"{cal_reply[:70]!r}")
+
+    #    "STOP!!!!!" · "I DONT Wng these reminders" · "never gave permission for this"
+    #    The suite had NO must-not-fire check, yet unwanted creation was her loudest complaint.
+    unwanted = sum(
+        fires(agent, "don't set any reminders, just tell me what I already have", "add_reminder")
+        for _ in range(2)
+    )
+    check("respects 'don't set any reminders' — add_reminder must NOT fire", unwanted == 0, f"fired {unwanted}/2")
+
+    #    Her bare "hello" got an unsolicited offer to draft an email.
+    greet_tools = tool_calls(agent, "hello")
+    greet_reply = reply_text(agent, "hello")
+    check("a bare greeting triggers no tool", not greet_tools, f"fired={greet_tools}")
+    check("a bare greeting gets a short answer", len(greet_reply) <= 400, f"{len(greet_reply)} chars")
+
+    #    Persona: lead with the answer, no dumping. Transcripts: "### Checking Your Calendar:" + 1/2/3.
+    dumpy = [t for t in (*replies, cal_reply, greet_reply) if t and _DUMPS.search(t)]
+    check("no markdown-header / numbered-list dumping", not dumpy,
+          f"{len(dumpy)} dumped | {dumpy[0][:60]!r}" if dumpy else "clean")
 
     summarize_and_exit()
 

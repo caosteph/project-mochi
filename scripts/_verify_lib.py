@@ -66,11 +66,11 @@ def summarize_and_exit() -> None:
         sys.exit(1)
 
 
-def fires(agent, prompt: str, tool: str) -> bool:
-    """True if the model FIRES `tool` for `prompt`.
+def tool_calls(agent, prompt: str) -> list[str]:
+    """Tool names the model chooses at the FIRST agent step, before anything executes.
 
-    Streams and returns at the first agent step — i.e. BEFORE the tool executes — so measuring
-    tool choice never creates a draft, builds a site, or hits the network.
+    Returning the list (rather than a bool) is what makes "must NOT fire" and "should fire
+    nothing at all" checks possible — the class of check the suite was missing.
     """
     from langchain_core.messages import HumanMessage  # lazy: keep import order flexible
 
@@ -78,9 +78,14 @@ def fires(agent, prompt: str, tool: str) -> bool:
     for update in agent.stream({"messages": [HumanMessage(prompt)]}, cfg, stream_mode="updates"):
         agent_step = update.get("agent")
         if agent_step and agent_step.get("messages"):
-            names = [tc["name"] for tc in (getattr(agent_step["messages"][-1], "tool_calls", None) or [])]
-            return tool in names
-    return False
+            return [tc["name"] for tc in (getattr(agent_step["messages"][-1], "tool_calls", None) or [])]
+    return []
+
+
+def fires(agent, prompt: str, tool: str) -> bool:
+    """True if the model FIRES `tool` for `prompt`. Breaks BEFORE the tool executes, so
+    measuring tool choice never creates a draft, builds a site, or hits the network."""
+    return tool in tool_calls(agent, prompt)
 
 
 def rate(agent, prompts: list[str], tool: str) -> int:

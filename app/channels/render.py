@@ -62,6 +62,26 @@ def render_proposal(action: str, details: dict) -> str:
     )
 
 
+def balance_markdown(text: str) -> str:
+    """Close markers left dangling mid-sentence so a *partial* stream still converts.
+
+    While a reply streams in, the buffer is routinely mid-token — `**bol`, an opened code fence,
+    a half-written italic. Telegram rejects that outright, which is why streaming used to be sent
+    as plain text and only formatted once at the end (formatting would "pop in" at the finish).
+    Closing the open markers on a copy makes almost every intermediate frame valid; anything this
+    doesn't catch still falls back to plain via `to_markdown_v2` returning None.
+    """
+    if not text:
+        return text
+    out = text
+    if out.count("```") % 2 == 1:  # fences first — they contain backticks the pass below counts
+        out += "\n```"
+    for marker in ("**", "__", "`", "*", "_"):
+        if out.count(marker) % 2 == 1:
+            out += marker
+    return out
+
+
 def to_markdown_v2(text: str) -> str | None:
     """Convert model text to Telegram MarkdownV2, or None if it can't be used.
 

@@ -45,6 +45,12 @@ def _ctx():
     return SimpleNamespace(bot=bot), bot
 
 
+def _shown(text: str) -> str:
+    """What she actually sees. Streaming now sends MarkdownV2, which escapes punctuation
+    ("there!" -> "there\\!"), so compare rendered content rather than raw wire text."""
+    return (text or "").replace("\\", "")
+
+
 def test_reply_streams_into_its_own_message():
     async def run():
         items = [
@@ -61,7 +67,7 @@ def test_reply_streams_into_its_own_message():
         assert reply == "Hello there!"
         # First op is the 💭 breadcrumb; the reply ends up displayed verbatim.
         assert bot.ops[0] == ("send", "💭 Thinking…", False)
-        assert any("Hello there!" in text for _, text, _ in bot.ops[1:])
+        assert any("Hello there!" in _shown(text) for _, text, _ in bot.ops[1:])
 
     asyncio.run(run())
 
@@ -85,7 +91,7 @@ def test_tool_call_shows_breadcrumb():
         assert reply == "You have 2 events."
         texts = [text for _, text, _ in bot.ops]
         assert "📅 Checking your calendar…" in texts  # the tool breadcrumb rendered
-        assert any("You have 2 events." in t for t in texts)
+        assert any("You have 2 events." in _shown(t) for t in texts)
 
     asyncio.run(run())
 

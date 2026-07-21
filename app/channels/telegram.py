@@ -43,7 +43,7 @@ from app.agent import router, sanitize
 from app.agent.graph import build_agent
 from app.agent.router import Sensitivity
 from app.channels.base import Channel
-from app.channels.render import chunk, render_proposal, status_for_tool, to_markdown_v2
+from app.channels.render import balance_markdown, chunk, render_proposal, status_for_tool, to_markdown_v2
 from app.config import settings
 from app.memory import extract, store
 from app.memory.db import get_engine
@@ -487,14 +487,24 @@ class TelegramChannel(Channel):
                 return
             text = text[:4000]  # Telegram message cap; the final reply is short in practice
             shown_reply[0] = text
-            try:
-                if reply_msg_id[0] is None:
-                    msg = await ctx.bot.send_message(chat_id=chat_id, text=text)
-                    reply_msg_id[0] = msg.message_id
-                else:
-                    await ctx.bot.edit_message_text(text, chat_id=chat_id, message_id=reply_msg_id[0])
-            except Exception:
-                pass
+            # Format DURING the stream: balance the half-written markers, then try MarkdownV2 and
+            # fall back to plain. Previously streaming was always plain and formatting only
+            # appeared on the final edit, so the reply visibly "popped" into shape at the end.
+            formatted = to_markdown_v2(balance_markdown(text))
+            for body, mode in ((formatted, "MarkdownV2"), (text, None)):
+                if body is None:
+                    continue
+                try:
+                    if reply_msg_id[0] is None:
+                        msg = await ctx.bot.send_message(chat_id=chat_id, text=body, parse_mode=mode)
+                        reply_msg_id[0] = msg.message_id
+                    else:
+                        await ctx.bot.edit_message_text(
+                            body, chat_id=chat_id, message_id=reply_msg_id[0], parse_mode=mode
+                        )
+                    return
+                except Exception:
+                    continue  # malformed MarkdownV2 → retry the same content as plain text
 
         stop = asyncio.Event()
 

@@ -71,3 +71,51 @@ def test_reminder_created_today_flows_into_the_briefing(engine, monkeypatch):
         reminders.create_reminder(s, text="call the dentist", when="today at 4pm", now=now)
         out = briefing.build_briefing(s, now=now, service=svc)
     assert "call the dentist" in out
+
+
+# --- the duplicate-reminder spam she actually hit ---------------------------
+# Production data (2026-07-20): "Perplexity prep" ×8, "submit health insurance claims" ×10
+# across two casings, "yoga class" ×7 — and 26 of 34 reminders hand-cancelled. She wrote
+# "STOP!!!!!" and "I DONT Wng these reminders". Root cause: dedup only matched reminders
+# whose due_at was within ±60 min, so the SAME task recreated for the next day never collapsed.
+
+def _pending(session) -> list:
+    return reminders.list_pending(session)
+
+
+def test_same_task_recreated_next_day_does_not_duplicate(engine, monkeypatch):
+    """The 'Perplexity prep' ×8 bug: asked again on a later day, at the same hour, it must
+    return the existing reminder instead of stacking another one."""
+    monkeypatch.setattr("app.config.settings.calendar_mirror_enabled", False)
+    now = datetime.now(get_localzone()).replace(hour=6, minute=0, second=0, microsecond=0)
+
+    with Session(engine) as s:
+        first = reminders.create_reminder(s, text="Perplexity prep", when="today at 8am", now=now)
+        again = reminders.create_reminder(s, text="Perplexity prep", when="tomorrow at 8am", now=now)
+        assert again.id == first.id, "same task at the same hour on a later day must not duplicate"
+        assert len(_pending(s)) == 1
+
+
+def test_dedup_ignores_casing(engine, monkeypatch):
+    """'Yoga class' and 'yoga class' are the same task (they became separate rows in prod)."""
+    monkeypatch.setattr("app.config.settings.calendar_mirror_enabled", False)
+    now = datetime.now(get_localzone()).replace(hour=6, minute=0, second=0, microsecond=0)
+
+    with Session(engine) as s:
+        first = reminders.create_reminder(s, text="Yoga class", when="today at 7pm", now=now)
+        again = reminders.create_reminder(s, text="yoga class", when="today at 7pm", now=now)
+        assert again.id == first.id
+        assert len(_pending(s)) == 1
+
+
+def test_same_text_at_a_genuinely_different_time_stays_separate(engine, monkeypatch):
+    """Guard against over-merging: twice-a-day is a real thing. 9am and 9pm are two reminders,
+    even though the text is identical — otherwise the dedup fix would swallow intent."""
+    monkeypatch.setattr("app.config.settings.calendar_mirror_enabled", False)
+    now = datetime.now(get_localzone()).replace(hour=6, minute=0, second=0, microsecond=0)
+
+    with Session(engine) as s:
+        morning = reminders.create_reminder(s, text="take medicine", when="today at 9am", now=now)
+        evening = reminders.create_reminder(s, text="take medicine", when="today at 9pm", now=now)
+        assert morning.id != evening.id, "different times of day are different reminders"
+        assert len(_pending(s)) == 2

@@ -7,6 +7,7 @@ deliver" rules (MarkdownV2 conversion + plain-text chunking).
 
 from app.agent.tools import ALL_TOOLS
 from app.channels.render import (
+    balance_markdown,
     CHUNK_SIZE,
     TG_LIMIT,
     chunk,
@@ -81,3 +82,30 @@ def test_chunk_splits_on_the_boundary():
 def test_chunk_short_text_is_one_piece_and_empty_is_none():
     assert chunk("short") == ["short"]
     assert chunk("") == []
+
+
+# --- mid-stream formatting --------------------------------------------------
+# Streaming used to be plain text with formatting only applied on the final edit, so the
+# reply visibly "popped" into shape when it finished. balance_markdown closes the markers a
+# half-streamed buffer leaves dangling so intermediate frames are valid MarkdownV2.
+
+def test_balance_closes_unclosed_bold_and_italic():
+    assert balance_markdown("**bol") == "**bol**"
+    assert balance_markdown("_ital") == "_ital_"
+    assert balance_markdown("here is `cod") == "here is `cod`"
+
+
+def test_balance_closes_an_open_code_fence():
+    out = balance_markdown("```python\nprint(1)")
+    assert out.count("```") == 2 and out.rstrip().endswith("```")
+
+
+def test_balance_leaves_already_valid_text_alone():
+    for good in ("plain sentence", "**bold**", "a `snippet` inline", "```py\nx=1\n```"):
+        assert balance_markdown(good) == good
+
+
+def test_balance_handles_empty_and_survives_conversion():
+    assert balance_markdown("") == ""
+    # the whole point: a partial buffer should now convert instead of being rejected
+    assert to_markdown_v2(balance_markdown("**partially wri")) is not None

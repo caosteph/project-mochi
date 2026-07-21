@@ -12,9 +12,10 @@ The point that shapes every design decision: **it runs on your own machine, on o
 and your private data never leaves.** No personal data is sent to a cloud LLM. Mochi *proposes*;
 you *dispose* — every action that touches the outside world waits for your explicit approval.
 
-> **Status:** actively built, phase by phase. Currently at **Phase 8** — durable memory, Google
-> Calendar/Gmail, proactive reminders, safe email reading, a daily briefing, web search, and a
-> sandboxed app/document builder are all working. See [Current status](#current-status).
+> **Status:** actively built, phase by phase. Durable memory, Google Calendar/Gmail, proactive
+> reminders, safe email reading, a daily briefing, web search, and a sandboxed app/document builder
+> all work. It runs supervised (launchd restarts it) and is exercised by CI plus a real-model
+> regression gate. See [Current status](#current-status).
 
 > This is a personal project built in the open as a learning exercise. It is **not** a packaged
 > product — expect rough edges, and read [`CLAUDE.md`](./CLAUDE.md) + [`docs/`](./docs) before
@@ -62,8 +63,11 @@ experiment in the opposite: a genuinely *personal* agent where
 - **Deterministic sensitivity router** picks local vs. hosted models *by data origin* (in code,
   never by an LLM), and fails closed. Personal data → always local. A hosted model is used only for
   opt-in, de-identified, PII-scrubbed, audited questions — raw personal data never leaves.
-- **Dynamic tool selection** solves a real limit: the local 7B collapses when bound with too many
-  tools, so each turn binds only a small, relevant subset chosen from your message.
+- **Dynamic tool selection** binds only a small, relevant subset of tools per turn, chosen from your
+  message. It was built for an apparent "tool-count wall", which later measurement showed was really
+  context exhaustion (~95 prompt tokens per bound tool against a 4,096 window). With that fixed all
+  tools bind fine, so this is now an optimization — it saves ~665 prompt tokens a turn — rather than
+  a workaround.
 
 ## Tech stack
 
@@ -71,7 +75,7 @@ experiment in the opposite: a genuinely *personal* agent where
 |------|--------|
 | Language / tooling | **Python 3.12**, [`uv`](https://github.com/astral-sh/uv) |
 | Agent runtime | **LangGraph** — stateful graph, tool nodes, `interrupt()`, durable Postgres checkpointer |
-| Models (local) | **Ollama** — `qwen2.5:7b` (chat) + `nomic-embed-text` (embeddings), via an OpenAI-compatible API so local↔hosted is a base-URL swap |
+| Models (local) | **Ollama** — `qwen2.5:7b-8k` (chat, a Modelfile variant — see the quickstart note) + `nomic-embed-text` (embeddings), via an OpenAI-compatible API so local↔hosted is a base-URL swap |
 | Data | **Postgres + pgvector** — one store for relational tables (SQLModel), semantic recall, and the checkpointer |
 | Channel | **python-telegram-bot** (long-polling); a `Channel` interface keeps iMessage a drop-in later |
 | Integrations | **Google API** (Calendar + Gmail, least-privilege scopes — `gmail.readonly` + `gmail.compose`, never `send`) |
@@ -112,18 +116,26 @@ Built in phases; each has a build doc in [`docs/`](./docs).
 - **P8 — web search:** "what's the weather / is X open / current price of Y" → the local model looks
   it up online. Only a **PII-scrubbed** query leaves (you approve it first), results are synthesized
   locally, every query is logged to `/sent`. Pluggable provider (Tavily or keyless DuckDuckGo).
+- **Reliability pass:** the local model runs at an 8k context — at Ollama's default 4,096 a turn's
+  prompt (~4,000 tokens) left almost no room to generate, which silently degraded tool-calling;
+  fixing it took several previously-dead prompts from 0/23 to 18/18. Plus **launchd supervision**
+  with a dependency preflight, a **single-instance lock** (two pollers on one bot token answer every
+  message twice), reminder de-duplication, and formatting that renders *while* a reply streams.
 
 ## Roadmap & future work
 
 The full, self-contained list (problem → why → effort) is **[`docs/14-future-work.md`](./docs/14-future-work.md)**;
 the detailed phase plan is [`docs/00-plan.md`](./docs/00-plan.md). Highlights:
 
-- **⭐ Raise the local model's context window** — it currently runs at 4,096 tokens while the persona
-  alone is ~3,600, so turns likely truncate the system prompt (a probable root cause of tool-firing
-  wobble). A cheap `OLLAMA_CONTEXT_LENGTH` experiment, traded against memory on 16GB.
-- **Mac mini + a larger local model** — the single biggest quality lever (reliability, headroom).
-- **Reliability/ops:** process supervision (launchd), checkpoint pruning, Alembic migrations, a
-  Docker sandbox.
+- **⭐ Back up the memory database** — everything the project is *for* lives in one Postgres with no
+  backups. Highest risk-to-effort item on the list.
+- **Make long-term memory actually accumulate** — the premise is a durable memory; in practice it
+  captures far less than it should, which is the gap between "agent" and "chatbot with tools".
+- **Re-enable the email signal scanner** — the flagship proactive feature, currently off because
+  early scans were too noisy.
+- **Try a newer same-size local model** — context, not model capability, turned out to be the
+  bottleneck, so the model choice deserves a fair re-test. Free.
+- **Reliability/ops:** checkpoint pruning, Alembic migrations, a Docker sandbox.
 - **Capabilities:** Google Drive, deeper memory, voice notes, email-in-briefing, a generalizable
   per-action approval layer.
 - **Search:** SearXNG (fully-local) / Brave providers behind the existing one-line-swap seam.
@@ -162,8 +174,11 @@ app/
   proactive/    reminders, email-signal scanning, the daily briefing, the job scheduler
   builder/      sandboxed web-app + document generation and LAN serving
 docs/           the roadmap, primers, and a build guide per phase (single source of truth)
-scripts/        verify_*.py — real-model checks that drive the actual agent end-to-end
+scripts/        verify_*.py real-model checks + preflight/run wrappers (_verify_lib.py is shared)
 tests/          offline pytest suite (mocks the model + Google)
+launchd/        the agent plist — starts at login, restarts on exit
+ollama/         Modelfile for the 8k-context model variant
+.github/        CI: ruff + the hermetic test suite on every push
 CLAUDE.md       orientation + the non-negotiable safety rules — read this first
 ```
 

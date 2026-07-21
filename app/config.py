@@ -96,6 +96,11 @@ class Settings(BaseSettings):
     reminder_lead_days: int = 3            # nudge this many days before a return window closes
     reminder_snooze_days: int = 1
     reminder_dedup_window_minutes: int = 60  # skip creating a same-text reminder within this of an existing one
+    # ...and also skip it when the same task is already pending at the SAME time of day within this
+    # many days. Measured 2026-07: the ±60min rule only caught same-day re-asks, so a task recreated
+    # on later days stacked up ("Perplexity prep" ×8). Different times of day stay separate, so a
+    # genuine twice-a-day reminder still works.
+    reminder_dedup_horizon_days: int = 7
     quiet_hours_start: int = 21            # no proactive nudges from 9pm…
     quiet_hours_end: int = 8               # …until 8am (local wall-clock)
     calendar_mirror_enabled: bool = True   # mirror timed reminders into Google Calendar events

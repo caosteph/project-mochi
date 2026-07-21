@@ -80,16 +80,16 @@ def test_add_reminder_passes_args_and_confirms_the_time(monkeypatch, engine):
 
     due = datetime(2026, 7, 21, 15, 0, tzinfo=timezone.utc)
 
-    def fake_create(session, *, text, when, recurrence=None, duration_minutes=None):
+    def fake_create(session, *, text, when, recurrence=None, duration_minutes=None, **kw):
         seen.update(text=text, when=when, recurrence=recurrence, duration_minutes=duration_minutes)
         with Session(engine) as s:
             r = Reminder(text=text, due_at=due, status=ReminderStatus.PENDING.value, recurrence=recurrence)
             s.add(r)
             s.commit()
             s.refresh(r)
-            return r
+            return r, True  # (reminder, created)
 
-    monkeypatch.setattr(reminder_tools.reminders, "create_reminder", fake_create)
+    monkeypatch.setattr(reminder_tools.reminders, "create_or_get_reminder", fake_create)
     out = reminder_tools.add_reminder.invoke(
         {"text": "call mom", "when": "tomorrow at 3pm", "recurrence": "weekly"}
     )
@@ -97,6 +97,26 @@ def test_add_reminder_passes_args_and_confirms_the_time(monkeypatch, engine):
     assert seen["text"] == "call mom" and seen["when"] == "tomorrow at 3pm" and seen["recurrence"] == "weekly"
     # Confirms back in words, including when it will actually fire.
     assert "call mom" in out and "weekly" in out and "{" not in out
+
+
+def test_add_reminder_says_so_instead_of_silently_duplicating(monkeypatch, engine):
+    """When dedup returns an existing reminder, the reply must say it was ALREADY set —
+    silently replying 'done, I'll remind you' is how 8 copies of one task went unnoticed."""
+    due = datetime(2026, 7, 21, 8, 0, tzinfo=timezone.utc)
+
+    def already_exists(session, *, text, when, **kw):
+        with Session(engine) as s:
+            r = Reminder(text=text, due_at=due, status=ReminderStatus.PENDING.value)
+            s.add(r)
+            s.commit()
+            s.refresh(r)
+            return r, False  # existing, not created
+
+    monkeypatch.setattr(reminder_tools.reminders, "create_or_get_reminder", already_exists)
+    out = reminder_tools.add_reminder.invoke({"text": "Perplexity prep", "when": "tomorrow at 8am"})
+
+    assert "already set" in out.lower()
+    assert "didn't add a second" in out.lower()
 
 
 def test_add_reminder_explains_an_unparseable_time(monkeypatch):

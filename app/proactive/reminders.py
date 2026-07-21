@@ -161,17 +161,43 @@ def _maybe_mirror(
         log.warning("Calendar mirror failed for reminder %s (reminder still active)", reminder.id, exc_info=True)
 
 
-def _find_duplicate(session: Session, text: str, due_at: datetime) -> Reminder | None:
-    """An existing PENDING reminder for the same task in the same due-window — so repeated
-    asks / double tool-calls don't pile up (a real bug: 'Perplexity prep' ×4, 'yoga class'
-    in six wordings). "yoga class"/"go to yoga class" collapse; "submit the form" stays
-    separate from "submit health insurance claims" (see app/proactive/text_match.py)."""
+def _same_time_of_day(a: datetime, b: datetime, window_seconds: int) -> bool:
+    """True if two instants land at (about) the same local clock time, wrapping midnight —
+    so 08:00 today and 08:00 tomorrow match, but 09:00 and 21:00 don't."""
+    tz = get_localzone()
+    la, lb = a.astimezone(tz), b.astimezone(tz)
+    secs = lambda d: d.hour * 3600 + d.minute * 60 + d.second  # noqa: E731
+    diff = abs(secs(la) - secs(lb))
+    return min(diff, 86_400 - diff) <= window_seconds
+
+
+def _is_same_reminder(a_text: str, a_due: datetime, b_text: str, b_due: datetime) -> bool:
+    """Whether two reminders are the same task, for dedup purposes.
+
+    Same task (`text_match.same_thing`) AND either due at nearly the same instant, OR — the case
+    that actually bit Stephanie — already pending at the SAME time of day within the horizon.
+    The ±window-only rule caught same-day re-asks but not a task recreated on later days, so
+    "Perplexity prep" accumulated 8 rows and she hand-cancelled 26 reminders. Different times of
+    day stay distinct, so a real twice-a-day reminder still works.
+    """
+    if not text_match.same_thing(a_text, b_text):
+        return False
     window = settings.reminder_dedup_window_minutes * 60
+    delta = abs((a_due - b_due).total_seconds())
+    if delta <= window:
+        return True
+    horizon = settings.reminder_dedup_horizon_days * 86_400
+    return delta <= horizon and _same_time_of_day(a_due, b_due, window)
+
+
+def _find_duplicate(session: Session, text: str, due_at: datetime) -> Reminder | None:
+    """An existing PENDING reminder for the same task — so repeated asks, double tool-calls, and
+    day-after-day recreation don't pile up. See `_is_same_reminder` for the rule."""
     candidates = session.exec(
         select(Reminder).where(Reminder.status == ReminderStatus.PENDING.value)
     ).all()
     for r in candidates:
-        if abs((r.due_at - due_at).total_seconds()) <= window and text_match.same_thing(r.text, text):
+        if _is_same_reminder(r.text, r.due_at, text, due_at):
             return r
     return None
 
@@ -180,17 +206,13 @@ def dedupe_pending_reminders(session: Session, *, dry_run: bool = False) -> list
     """One-time cleanup: cancel already-accumulated duplicate PENDING reminders, keeping the
     earliest of each same-task group (same due-window). The create-time dedup stops NEW dupes;
     this clears the pre-existing backlog. Reversible (status→cancelled). Returns cancelled ids."""
-    window = settings.reminder_dedup_window_minutes * 60
     pending = session.exec(
         select(Reminder).where(Reminder.status == ReminderStatus.PENDING.value).order_by(Reminder.id)
     ).all()
     kept: list[tuple[str, datetime]] = []
     cancelled: list[int] = []
     for r in pending:
-        is_dup = any(
-            abs((kd - r.due_at).total_seconds()) <= window and text_match.same_thing(kt, r.text)
-            for kt, kd in kept
-        )
+        is_dup = any(_is_same_reminder(kt, kd, r.text, r.due_at) for kt, kd in kept)
         if is_dup:
             cancelled.append(r.id)
             if not dry_run:
@@ -204,6 +226,38 @@ def dedupe_pending_reminders(session: Session, *, dry_run: bool = False) -> list
     return cancelled
 
 
+def create_or_get_reminder(
+    session: Session,
+    *,
+    text: str,
+    when: str,
+    recurrence: str | None = None,
+    duration_minutes: int | None = None,
+    mirror: bool | None = None,
+    now: datetime | None = None,
+) -> tuple[Reminder, bool]:
+    """Create a reminder, or return the existing one it duplicates.
+
+    Returns `(reminder, created)`. The flag matters for what the agent *says*: silently
+    reporting "done, I'll remind you" when nothing new was created is how Stephanie ended up
+    believing she had reminders she didn't, and being surprised by ones she did.
+    Raises ReminderParseError on an unparseable/past time (nothing is created).
+    """
+    due_at, rec = parse_when(when, recurrence, now=now)
+    duplicate = _find_duplicate(session, text, due_at)
+    if duplicate is not None:
+        return duplicate, False
+    reminder = Reminder(
+        text=text, due_at=due_at, recurrence=rec, kind=ReminderKind.GENERIC.value,
+        status=ReminderStatus.PENDING.value,
+    )
+    session.add(reminder)
+    session.commit()
+    session.refresh(reminder)
+    _maybe_mirror(session, reminder, duration_minutes, mirror)
+    return reminder, True
+
+
 def create_reminder(
     session: Session,
     *,
@@ -214,22 +268,13 @@ def create_reminder(
     mirror: bool | None = None,
     now: datetime | None = None,
 ) -> Reminder:
-    """Create a user reminder from a natural-language time, and (if mirroring is on)
-    a matching calendar event whose length is `duration_minutes` or a short default.
-    Raises ReminderParseError on an unparseable/past time (nothing is created). A
-    near-duplicate of an existing pending reminder is returned instead of re-created."""
-    due_at, rec = parse_when(when, recurrence, now=now)
-    duplicate = _find_duplicate(session, text, due_at)
-    if duplicate is not None:
-        return duplicate
-    reminder = Reminder(
-        text=text, due_at=due_at, recurrence=rec, kind=ReminderKind.GENERIC.value,
-        status=ReminderStatus.PENDING.value,
+    """Create a user reminder from a natural-language time, and (if mirroring is on) a matching
+    calendar event. A near-duplicate of an existing pending reminder is returned instead of
+    re-created. Use `create_or_get_reminder` when you need to know which happened."""
+    reminder, _ = create_or_get_reminder(
+        session, text=text, when=when, recurrence=recurrence,
+        duration_minutes=duration_minutes, mirror=mirror, now=now,
     )
-    session.add(reminder)
-    session.commit()
-    session.refresh(reminder)
-    _maybe_mirror(session, reminder, duration_minutes, mirror)
     return reminder
 
 

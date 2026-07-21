@@ -27,16 +27,18 @@ def add_reminder(
         return "I've hit my safety limit on reminders for the hour — paused. Try again a bit later."
     with Session(get_engine()) as session:
         try:
-            reminder = reminders.create_reminder(
+            reminder, created = reminders.create_or_get_reminder(
                 session, text=text, when=when, recurrence=recurrence, duration_minutes=duration_minutes
             )
         except reminders.ReminderParseError as exc:
             return f"I couldn't pin down when — {exc}. Give me a specific time like 'tomorrow at 3pm'."
         rec = f", repeating {reminder.recurrence}" if reminder.recurrence else ""
-        return (
-            f"Done — I'll remind you to {reminder.text}{rec}. "
-            f"First: {reminder.due_at.astimezone():%a %b %-d at %-I:%M %p}."
-        )
+        when_str = f"{reminder.due_at.astimezone():%a %b %-d at %-I:%M %p}"
+        if not created:
+            # Say so rather than implying a new one was made — silently "confirming" a duplicate
+            # is how she ended up with 8 copies of the same reminder.
+            return f"That's already set — {reminder.text}{rec}, {when_str}. I didn't add a second one."
+        return f"Done — I'll remind you to {reminder.text}{rec}. First: {when_str}."
 
 
 @tool
