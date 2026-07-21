@@ -279,6 +279,18 @@ cd ~/personal-agent
 uv run python -m app.main        # or: source .venv/bin/activate && python -m app.main
 ```
 
+**Supervised (recommended — this is how it runs day to day).** `launchd` starts Mochi at login and
+restarts it if it exits; `scripts/preflight.sh` repairs Postgres/Ollama first (including a stale
+`postmaster.pid` after an unclean shutdown) and builds the 8k model if missing:
+```bash
+cp launchd/com.mochi.agent.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mochi.agent.plist
+launchctl print gui/$(id -u)/com.mochi.agent | head   # status
+tail -f data/mochi.log                                # logs
+launchctl bootout gui/$(id -u)/com.mochi.agent        # stop/uninstall
+```
+Don't run the manual command *and* the agent at once — two pollers on one bot token conflict.
+
 ## Conventions
 
 - Keep each phase lean: no speculative abstractions, no half-finished later-phase code.

@@ -87,18 +87,20 @@ Kept here because it reframes several older "7B limitations" as misdiagnoses.
 
 ## Reliability & operations
 
-**Process supervision + unclean-shutdown recovery. ⭐ (observed twice, for real)**
-- **Problem:** the bot is a single long-polling process with no auto-restart, and nothing recovers
-  the stack after a hard shutdown. Both happened during development: (1) the bot died silently
-  mid-session; (2) the machine died, and afterwards **Postgres refused to start** because a stale
-  `postmaster.pid` (referencing a since-recycled PID) survived the unclean shutdown — `brew services`
-  just flapped into `error` state. Both left Mochi silently dead: no reminders, no briefing, no replies.
-- **Why:** an assistant you rely on for reminders is worthless if it's quietly down. Neither failure
-  announces itself; you find out by missing something.
-- **Fix:** a macOS **launchd** plist with `KeepAlive` for the bot; a small **startup preflight** that
-  checks Postgres + Ollama, clears a stale `postmaster.pid` when no postmaster is actually running,
-  and starts what's missing; optionally a heartbeat ping so silence is detectable.
-- **Effort:** small (a plist + a ~30-line preflight script). High value for reliability.
+**✅ DONE — Process supervision + unclean-shutdown recovery** (both failures were observed for real:
+the bot died silently mid-session, and after the machine died Postgres refused to start because a
+stale `postmaster.pid` survived — `brew services` just flapped into `error`, leaving Mochi silently
+dead). Shipped:
+- `launchd/com.mochi.agent.plist` — `RunAtLoad` + `KeepAlive` (starts at login, restarts on any exit),
+  `ThrottleInterval` 30s so a failing start doesn't hot-loop; logs to `data/mochi.log`.
+- `scripts/preflight.sh` — verifies/repairs Postgres (removes a stale `postmaster.pid` **only** after
+  confirming no postmaster is actually running — a recorded PID can be recycled to an unrelated
+  process, which is exactly what we hit), starts Ollama, and creates the 8k model if missing. Exits
+  non-zero so launchd retries rather than starting a bot that will fail every turn.
+- `scripts/run_mochi.sh` — preflight, then `exec` the bot so launchd supervises the real process.
+- **Verified** by killing the bot: launchd restarted it automatically (~15s).
+- *Still open (small):* a heartbeat/liveness ping so a *silently wedged* (not crashed) bot is
+  detectable — KeepAlive only catches exits.
 
 **PostgresSaver checkpoint growth.**
 - **Problem:** the LangGraph checkpointer writes a row per turn and nothing prunes it — unbounded

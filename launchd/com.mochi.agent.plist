@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for Mochi: starts at login and RESTARTS the bot if it ever exits.
+
+  Install:
+    cp launchd/com.mochi.agent.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mochi.agent.plist
+  Status / logs:
+    launchctl print gui/$(id -u)/com.mochi.agent | head -20
+    tail -f data/mochi.log
+  Stop / uninstall:
+    launchctl bootout gui/$(id -u)/com.mochi.agent
+    rm ~/Library/LaunchAgents/com.mochi.agent.plist
+
+  NOTE: paths are absolute because launchd runs with a minimal environment. If the repo moves,
+  update WorkingDirectory + ProgramArguments + the log paths.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mochi.agent</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/stephaniecao/personal-agent/scripts/run_mochi.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/stephaniecao/personal-agent</string>
+
+  <!-- Start at login, and bring it back whenever it exits (crash, OOM, unclean shutdown). -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- Don't hot-loop if it's failing (e.g. Postgres down): wait 30s between restarts. -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/stephaniecao/personal-agent/data/mochi.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/stephaniecao/personal-agent/data/mochi.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+</dict>
+</plist>
