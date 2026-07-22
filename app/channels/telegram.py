@@ -117,9 +117,11 @@ class TelegramChannel(StreamingMixin, CommandsMixin, ButtonsMixin, Channel):
         the user stated and store the new ones. Runs off the event loop (no user-facing
         latency) and is fully error-isolated — a sweep failure never affects the turn. This
         is the reliable backstop to the flaky remember_fact tool (see app/memory/extract.py)."""
+        from app.agent.graph import fact_extractor
+
         def run():
             with Session(get_engine()) as session:
-                return extract.sweep_and_store(session, text)
+                return extract.sweep_and_store(session, text, extractor=fact_extractor())
 
         try:
             stored = await asyncio.to_thread(run)

@@ -54,6 +54,17 @@ _base_llm = router.chat_model(Sensitivity.SENSITIVE, temperature=0.4)
 _summarizer_llm = router.chat_model(Sensitivity.SENSITIVE, temperature=0.3)
 
 
+def fact_extractor():
+    """The structured local model the post-turn fact sweep runs on. It lives in the agent layer
+    (which owns model selection via the router) and is injected into `app.memory.extract`, so
+    memory stays a dependency-free leaf — SENSITIVE facts are always the local model (constitution)."""
+    from app.memory.extract import ExtractedFacts
+
+    return router.chat_model(Sensitivity.SENSITIVE, temperature=0).with_structured_output(
+        ExtractedFacts, method="json_schema"
+    )
+
+
 def _agent_node(state: AgentState) -> dict:
     """Single reasoning step.
 

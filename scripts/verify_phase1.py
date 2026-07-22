@@ -79,15 +79,17 @@ def main() -> None:
     # local extraction that runs every turn, so facts get captured even when the model
     # doesn't fire remember_fact above. Should far exceed the tool-firing rate — AND it
     # stores here, so the recall checks below then succeed (proving the fix end-to-end).
+    from app.agent.graph import fact_extractor
     from app.config import settings as _settings
     from app.memory import extract as fact_extract
     from app.memory import store as _store
     from app.memory.models import Provenance
 
+    _extractor = fact_extractor()  # injected — memory/extract no longer reaches up into agent
     extracted = 0
     with Session(get_engine()) as session:
         for text in phrasings:
-            facts = fact_extract.extract_facts(text)  # single extraction per phrase
+            facts = fact_extract.extract_facts(text, extractor=_extractor)  # single extraction per phrase
             extracted += 1 if facts else 0
             for f in facts:  # store the new ones (dedup) so recall works
                 hits = _store.recall(session, query=f, k=1)

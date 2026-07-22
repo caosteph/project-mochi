@@ -39,20 +39,12 @@ _SYSTEM = SystemMessage(
 )
 
 
-def _reader():
-    # Lazy import avoids any import-order coupling; SENSITIVE → always the local model.
-    from app.agent import router
-    from app.agent.router import Sensitivity
+def extract_facts(user_message: str, *, extractor) -> list[str]:
+    """Extract durable personal facts from one user message.
 
-    return router.chat_model(Sensitivity.SENSITIVE, temperature=0).with_structured_output(
-        ExtractedFacts, method="json_schema"
-    )
-
-
-def extract_facts(user_message: str, *, extractor=None) -> list[str]:
-    """Extract durable personal facts from one user message. `extractor` is injectable
-    (a fake returning a canned ExtractedFacts) so the pipeline runs offline in tests."""
-    extractor = extractor if extractor is not None else _reader()
+    `extractor` is injected (dependency inversion): the model that reads the message is an
+    agent-layer concern (`app.agent.graph.fact_extractor` builds the SENSITIVE local model), so
+    this module — a `app.memory` leaf — never imports up into `app.agent`. Tests pass a fake."""
     result = extractor.invoke([_SYSTEM, HumanMessage(user_message)])
     seen, out = set(), []
     for f in result.facts:
@@ -63,9 +55,10 @@ def extract_facts(user_message: str, *, extractor=None) -> list[str]:
     return out[:10]  # bound per message
 
 
-def sweep_and_store(session: Session, user_message: str, *, extractor=None) -> list[str]:
+def sweep_and_store(session: Session, user_message: str, *, extractor) -> list[str]:
     """Extract facts from a user message and store the new ones (deduped against memory).
-    Returns the list of newly-stored facts. Safe to call every turn."""
+    Returns the list of newly-stored facts. Safe to call every turn. `extractor` is injected —
+    see extract_facts."""
     stored = []
     for fact in extract_facts(user_message, extractor=extractor):
         hits = store.recall(session, query=fact, k=1)
