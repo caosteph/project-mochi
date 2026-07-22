@@ -18,7 +18,7 @@ from app.config import settings
 from app.memory import store
 from app.memory.db import get_engine
 from app.memory.models import EmailSignal, SignalStatus
-from app.proactive import briefing, email_signals, reminders
+from app.proactive import briefing, email_signals, reminder_time, reminders
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ async def run_reminder_tick(bot, session: Session, chat_id: int, now: datetime |
     now = now or datetime.now(UTC)
     if not _enabled:
         return 0
-    if reminders.in_quiet_hours(now.astimezone()):
+    if reminder_time.in_quiet_hours(now.astimezone()):
         return 0
 
     sent = 0
@@ -98,7 +98,7 @@ async def send_pending_asks(bot, session: Session, chat_id: int, now: datetime |
     now = now or datetime.now(UTC)
     if not _enabled:
         return 0
-    if reminders.in_quiet_hours(now.astimezone()):
+    if reminder_time.in_quiet_hours(now.astimezone()):
         return 0
 
     pending = session.exec(

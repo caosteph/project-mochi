@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 
 from app.memory.db import init_db
 from app.memory.models import Purchase, Reminder, ReminderStatus
-from app.proactive import jobs, reminders
+from app.proactive import jobs, reminder_calendar, reminder_time, reminders
 from tests.support import FakeBot, factories
 
 UTC = UTC
@@ -53,15 +53,15 @@ def test_init_db_adds_new_reminder_columns(engine):
 ])
 def test_parse_when_resolves_future(phrase, expect_rec):
     now = datetime(2026, 7, 12, 14, 0, tzinfo=UTC)
-    due, rec = reminders.parse_when(phrase, now=now)
+    due, rec = reminder_time.parse_when(phrase, now=now)
     assert due > now
     assert rec == expect_rec
 
 
 @pytest.mark.parametrize("phrase", ["yesterday", "asdf gibberish", "last week"])
 def test_parse_when_rejects_bad_times(phrase):
-    with pytest.raises(reminders.ReminderParseError):
-        reminders.parse_when(phrase, now=datetime(2026, 7, 12, 14, 0, tzinfo=UTC))
+    with pytest.raises(reminder_time.ReminderParseError):
+        reminder_time.parse_when(phrase, now=datetime(2026, 7, 12, 14, 0, tzinfo=UTC))
 
 
 # --- recurrence advancement (catch-up without spam) ------------------------
@@ -69,7 +69,7 @@ def test_parse_when_rejects_bad_times(phrase):
 def test_next_occurrence_skips_missed_slots():
     anchor = datetime(2026, 7, 1, 9, 0, tzinfo=UTC)  # weekly, but a month ago
     now = datetime(2026, 7, 30, 12, 0, tzinfo=UTC)
-    nxt = reminders.next_occurrence(anchor, "weekly", now)
+    nxt = reminder_time.next_occurrence(anchor, "weekly", now)
     assert nxt > now and (nxt - now) <= timedelta(weeks=1)  # exactly the next future slot
 
 
@@ -78,7 +78,7 @@ def test_next_occurrence_skips_missed_slots():
 @pytest.mark.parametrize("hour,expected", [(22, True), (3, True), (8, False), (12, False), (20, False)])
 def test_quiet_hours_wraps_midnight(hour, expected):
     local = datetime.now().astimezone().replace(hour=hour, minute=0)
-    assert reminders.in_quiet_hours(local) is expected  # default window 21:00–08:00
+    assert reminder_time.in_quiet_hours(local) is expected  # default window 21:00–08:00
 
 
 # --- return reminder -------------------------------------------------------
@@ -194,13 +194,13 @@ def test_mirror_reminder_creates_event_once(engine):
         r = _seed(s, "mirror me", datetime(2026, 7, 20, 12, 0, tzinfo=UTC))
         service = MagicMock()
         service.events().insert().execute.return_value = {"id": "evt_1"}
-        eid = reminders.mirror_reminder(s, r, service=service)
+        eid = reminder_calendar.mirror_reminder(s, r, service=service)
         assert eid == "evt_1"
         s.refresh(r)
         assert r.calendar_event_id == "evt_1"
         # Idempotent: a second mirror doesn't create another event.
         service.events().insert.reset_mock()
-        reminders.mirror_reminder(s, r, service=service)
+        reminder_calendar.mirror_reminder(s, r, service=service)
         service.events().insert.assert_not_called()
 
 
@@ -209,7 +209,7 @@ def test_mirror_reminder_duration(engine):
         r = _seed(s, "2-hour meeting", datetime(2026, 7, 20, 12, 0, tzinfo=UTC))
         service = MagicMock()
         service.events().insert().execute.return_value = {"id": "e"}
-        reminders.mirror_reminder(s, r, duration_minutes=120, service=service)
+        reminder_calendar.mirror_reminder(s, r, duration_minutes=120, service=service)
         _, kwargs = service.events().insert.call_args
         start = datetime.fromisoformat(kwargs["body"]["start"]["dateTime"])
         end = datetime.fromisoformat(kwargs["body"]["end"]["dateTime"])
@@ -219,7 +219,7 @@ def test_mirror_reminder_duration(engine):
         r = _seed(s, "call mom", datetime(2026, 7, 20, 12, 0, tzinfo=UTC))
         service = MagicMock()
         service.events().insert().execute.return_value = {"id": "e2"}
-        reminders.mirror_reminder(s, r, service=service)  # no duration → short default
+        reminder_calendar.mirror_reminder(s, r, service=service)  # no duration → short default
         _, kwargs = service.events().insert.call_args
         start = datetime.fromisoformat(kwargs["body"]["start"]["dateTime"])
         end = datetime.fromisoformat(kwargs["body"]["end"]["dateTime"])

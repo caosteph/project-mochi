@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from app.agent import rate_limit
 from app.agent.tools import google_tools
 from app.integrations import google_calendar, google_gmail
-from app.proactive import reminders
+from app.proactive import reminder_time
 
 UTC = UTC
 
@@ -55,11 +55,11 @@ def test_service_is_cached(monkeypatch):
 
 def test_recurrence_preserves_local_hour_across_dst(monkeypatch):
     ny = ZoneInfo("America/New_York")
-    monkeypatch.setattr(reminders, "get_localzone", lambda: ny)
+    monkeypatch.setattr(reminder_time, "get_localzone", lambda: ny)  # next_occurrence lives here now
     # 8:00am EST on Sat Mar 7 2026; spring-forward is Sun Mar 8 2026 (2am→3am).
     due_at = datetime(2026, 3, 7, 8, 0, tzinfo=ny).astimezone(UTC)
     now = datetime(2026, 3, 7, 9, 0, tzinfo=ny).astimezone(UTC)
-    nxt = reminders.next_occurrence(due_at, "daily", now)
+    nxt = reminder_time.next_occurrence(due_at, "daily", now)
     # A naive UTC+1day would give 9am EDT; the fix keeps it 8am local.
     assert nxt.astimezone(ny).hour == 8
 
