@@ -109,18 +109,27 @@ def test_fuzzy_matching_does_not_cancel_an_unrelated_reminder(three_reminders):
     assert by_text["submit health insurance claims"] == ReminderStatus.PENDING.value
 
 
-def test_ambiguous_match_cancels_exactly_one_and_names_it(engine):
+def test_ambiguous_match_now_asks_rather_than_guessing(engine, monkeypatch):
+    """Behaviour change (2026-07-21): a query matching >1 reminder used to auto-pick the best
+    guess; it now shows Stephanie a picker (she chose this). The full tap-through flow lives in
+    tests/test_cancel_reminder_choice.py; here we just pin that ambiguity routes to a choice."""
+    from app.agent.tools import reminder_tools
+
     with Session(engine) as s:
         for i, text in enumerate(["dentist appointment", "dentist cleaning follow-up"]):
             s.add(Reminder(text=text, due_at=datetime.now(UTC) + timedelta(days=i + 1),
                            status=ReminderStatus.PENDING.value))
         s.commit()
-    out = cancel_reminder.invoke({"query": "the dentist reminder"})
-    with Session(get_engine()) as s:
-        cancelled = [r.text for r in s.exec(select(Reminder))
-                     if r.status == ReminderStatus.CANCELLED.value]
-    assert len(cancelled) == 1, "must not cancel both on an ambiguous query"
-    assert cancelled[0] in out, "the reply must name what it cancelled, so a wrong pick is visible"
+
+    asked = {}
+
+    def fake_ask(question, options):
+        asked["options"] = list(options)
+        return 0
+
+    monkeypatch.setattr(reminder_tools, "ask_choice", fake_ask)
+    cancel_reminder.invoke({"query": "the dentist reminder"})
+    assert set(asked["options"]) == {"dentist appointment", "dentist cleaning follow-up"}
 
 
 def test_recurring_reminder_renders_its_cadence(engine):

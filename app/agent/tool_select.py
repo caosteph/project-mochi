@@ -31,7 +31,10 @@ from app.memory.embeddings import embed_local
 log = logging.getLogger(__name__)
 
 # Always bound — broadly needed and hard to route by embedding (generic descriptions).
-CORE = ("recall", "remember_fact")
+# ask_user is CORE deliberately: it's the decision primitive, and it can be needed on ANY turn
+# (a confirmation, a disambiguation). If it were only sometimes bound, the model would fall back
+# to asking in prose exactly when it mattered — which is the failure that motivated it.
+CORE = ("recall", "remember_fact", "ask_user")
 
 # High-signal keyword → tool boosts. Union'd in (false positives only add a capped tool;
 # they never remove the right one), so we can be generous.

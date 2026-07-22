@@ -10,6 +10,7 @@ what stands between "Mochi proposes" and "Mochi acts". See rule 3 in CLAUDE.md.
 """
 
 import asyncio
+import contextlib
 import logging
 
 from langgraph.types import Command
@@ -17,6 +18,7 @@ from sqlmodel import Session
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from app.channels.render import render_resolved_choice
 from app.memory.db import get_engine
 from app.memory.models import EmailSignal, SignalStatus
 from app.proactive import reminders
@@ -29,22 +31,54 @@ class ButtonsMixin:
 
     async def _on_callback(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
-        await query.answer()
         if not self._authorized(update):
+            await query.answer()
             return
         chat_id = update.effective_chat.id
-        await query.edit_message_reply_markup(reply_markup=None)  # no double-taps
 
         data = query.data or ""
         if data.startswith("rem:"):
+            await query.answer()
+            await query.edit_message_reply_markup(reply_markup=None)  # no double-taps
             await self._on_reminder_button(chat_id, ctx, data)
             return
         if data.startswith("sig:"):
+            await query.answer()
+            await query.edit_message_reply_markup(reply_markup=None)
             await self._on_signal_button(chat_id, ctx, data)
             return
+        if data.startswith("ans:"):
+            await self._resume_choice(chat_id, ctx, query, int(data.split(":")[1]))
+            return
         # Otherwise it's a draft approve/reject: resume the paused graph.
+        await query.answer()
+        await query.edit_message_reply_markup(reply_markup=None)
         interrupt_payload, reply, error = await self._run_with_status(
             chat_id, ctx, Command(resume={"approved": data == "approve"}), announce_thinking=False
+        )
+        if error is not None:
+            await self._report_error(chat_id, ctx, error)
+            return
+        await self._deliver(chat_id, ctx, interrupt_payload, reply)
+
+    async def _resume_choice(self, chat_id, ctx, query, choice: int) -> None:
+        """She tapped one of a choice question's option buttons. Toast for instant feedback,
+        rewrite the question to show what she picked (no dangling dead buttons), then resume the
+        paused graph with her index so the waiting tool returns the chosen option to the model."""
+        chosen = ""
+        if query.message and query.message.reply_markup:
+            buttons = [b for row in query.message.reply_markup.inline_keyboard for b in row]
+            if 0 <= choice < len(buttons):
+                chosen = buttons[choice].text
+        await query.answer(text=f"Got it — {chosen}" if chosen else "Got it")
+        if query.message:
+            with contextlib.suppress(Exception):  # cosmetic; a failed edit must not drop the turn
+                await query.edit_message_text(
+                    render_resolved_choice(query.message.text or "", chosen)
+                )
+
+        interrupt_payload, reply, error = await self._run_with_status(
+            chat_id, ctx, Command(resume={"choice": choice}), announce_thinking=False
         )
         if error is not None:
             await self._report_error(chat_id, ctx, error)

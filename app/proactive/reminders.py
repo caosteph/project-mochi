@@ -469,43 +469,59 @@ def _delete_mirror(reminder: Reminder) -> None:
     reminder.calendar_event_id = None
 
 
-def cancel_reminder(session: Session, query: str) -> Reminder | None:
-    """Cancel by numeric id, a case-insensitive substring, or a fuzzy content-word match — and
-    remove its mirrored calendar event so nothing is left behind.
+def find_pending_matches(session: Session, query: str) -> list[Reminder]:
+    """Pending/sent reminders matching `query`, best match first — READ-ONLY.
 
-    Substring alone was too strict to be usable. The model passes back whatever phrasing she
-    used, so `cancel_reminder("the dentist reminder")` had to match the stored "dentist
-    appointment" — and didn't, returning "I couldn't find a reminder matching…" while the
-    reminder sat there. Even the tool's own docstring example ('the mom reminder') failed.
-    `text_match.same_thing` is the matcher this project already uses to decide "same task" for
-    de-duplication; using it here makes cancelling as forgiving as de-duping.
+    Split out so a caller can see whether the query is ambiguous (more than one match) and offer
+    a choice, rather than silently cancelling one guess. Being read-only, it's safe to re-run,
+    which the interrupt/resume flow does.
 
-    Ambiguity is resolved rather than refused: the best content-word overlap wins, ties go to
-    the soonest due. The caller echoes back what it cancelled, so a wrong pick is visible.
+    Matching is deliberately forgiving — substring alone was too strict, since the model passes
+    back whatever phrasing she used, so "the dentist reminder" has to match the stored "dentist
+    appointment" (it didn't, and even the docstring example 'the mom reminder' failed). Falls
+    back to `text_match.same_thing`, the fuzzy matcher this project already uses for de-dup.
+    Ordering: exact substring matches first, then fuzzy, each ranked by content-word overlap and
+    then soonest due — so `matches[0]` is the best single guess.
     """
-    reminder = None
     if query.strip().isdigit():
-        reminder = session.get(Reminder, int(query.strip()))
-    if reminder is None:
-        candidates = session.exec(
-            select(Reminder).where(
-                Reminder.status.in_([ReminderStatus.PENDING.value, ReminderStatus.SENT.value])
-            )
-        ).all()
-        q = query.lower()
-        reminder = next((r for r in candidates if q in r.text.lower()), None)
-        if reminder is None:
-            q_words = text_match.content_words(query)
-            fuzzy = [r for r in candidates if text_match.same_thing(query, r.text)]
-            if fuzzy:
-                reminder = max(
-                    fuzzy,
-                    key=lambda r: (len(q_words & text_match.content_words(r.text)), -r.due_at.timestamp()),
-                )
-    if reminder is None:
+        one = session.get(Reminder, int(query.strip()))
+        return [one] if one and one.status in (ReminderStatus.PENDING.value, ReminderStatus.SENT.value) else []
+
+    candidates = session.exec(
+        select(Reminder).where(
+            Reminder.status.in_([ReminderStatus.PENDING.value, ReminderStatus.SENT.value])
+        )
+    ).all()
+    q = query.lower()
+    q_words = text_match.content_words(query)
+
+    def rank(r: Reminder) -> tuple:
+        return (len(q_words & text_match.content_words(r.text)), -r.due_at.timestamp())
+
+    exact = sorted((r for r in candidates if q in r.text.lower()), key=rank, reverse=True)
+    fuzzy = sorted(
+        (r for r in candidates if q not in r.text.lower() and text_match.same_thing(query, r.text)),
+        key=rank,
+        reverse=True,
+    )
+    return exact + fuzzy
+
+
+def cancel_reminder_by_id(session: Session, reminder_id: int) -> Reminder | None:
+    """Cancel a specific reminder and remove its mirrored calendar event. Returns None if it's
+    gone or already cancelled (so a stale button tap is harmless)."""
+    reminder = session.get(Reminder, reminder_id)
+    if reminder is None or reminder.status == ReminderStatus.CANCELLED.value:
         return None
     _delete_mirror(reminder)
     reminder.status = ReminderStatus.CANCELLED.value
     session.add(reminder)
     session.commit()
     return reminder
+
+
+def cancel_reminder(session: Session, query: str) -> Reminder | None:
+    """Cancel the best match for `query` (or None if nothing matches). Convenience wrapper over
+    find_pending_matches + cancel_reminder_by_id; the tool layer handles ambiguity via a choice."""
+    matches = find_pending_matches(session, query)
+    return cancel_reminder_by_id(session, matches[0].id) if matches else None

@@ -7,6 +7,7 @@ from langchain_core.tools import tool
 from sqlmodel import Session
 
 from app.agent import rate_limit
+from app.agent.confirm import ask_choice
 from app.memory.db import get_engine
 from app.proactive import reminders
 
@@ -58,17 +59,38 @@ def list_reminders() -> str:
 
 @tool
 def cancel_reminder(query: str) -> str:
-    """Cancel a reminder by a description of it (e.g. 'the mom reminder') or its number."""
-    # `reminders.cancel_reminder` commits, which expires the instance; reading `.text` after the
-    # session closed raised DetachedInstanceError, so the reminder WAS cancelled and the tool
-    # then blew up — the turn errored and Stephanie was told nothing had happened. Read the
-    # text inside the block and return a plain string.
+    """Cancel a reminder by a description of it (e.g. 'the mom reminder') or its number.
+
+    One match → cancels it. Several matches → shows Stephanie buttons to pick which (she chose
+    this: no friction when it's clear, a tap when it's genuinely ambiguous). None → says so.
+    """
+    # Read-only lookup first (safe to re-run, which the choice interrupt does). All DB reads
+    # capture plain values inside the session — reading an attribute after commit raised
+    # DetachedInstanceError once, which cancelled the row then crashed the confirmation.
     with Session(get_engine()) as session:
-        cancelled = reminders.cancel_reminder(session, query)
-        text = cancelled.text if cancelled is not None else None
-    if text is None:
+        matches = reminders.find_pending_matches(session, query)
+        labels = [r.text for r in matches]
+        ids = [r.id for r in matches]
+
+    if not matches:
         return f"I couldn't find a reminder matching {query!r}."
-    return f"Cancelled: {text}."
+
+    if len(matches) == 1:
+        target_id, target_text = ids[0], labels[0]
+    else:
+        # Ambiguous → let her tap which one. ask_choice pauses the graph and resumes with her
+        # index; on resume this tool re-runs from the top, so the lookup above repeats and the
+        # indices still line up.
+        idx = ask_choice("Which reminder should I cancel?", labels)
+        if idx < 0:
+            return "Okay, I didn't cancel anything."
+        target_id, target_text = ids[idx], labels[idx]
+
+    with Session(get_engine()) as session:
+        cancelled = reminders.cancel_reminder_by_id(session, target_id)
+    if cancelled is None:
+        return f"That reminder ({target_text}) was already gone."
+    return f"Cancelled: {target_text}."
 
 
 REMINDER_TOOLS = [add_reminder, list_reminders, cancel_reminder]

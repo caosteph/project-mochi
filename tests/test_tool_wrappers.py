@@ -140,11 +140,14 @@ def test_list_reminders_empty_and_populated(monkeypatch):
 
 
 def test_cancel_reminder_reports_hit_and_miss(monkeypatch):
-    monkeypatch.setattr(reminder_tools.reminders, "cancel_reminder", lambda session, q: None)
+    # The tool now looks up matches (read-only) then cancels by id — mock those, not the old
+    # single-shot cancel_reminder. One match → cancels directly (no ambiguity prompt).
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(reminder_tools.reminders, "find_pending_matches", lambda session, q: [])
     assert "couldn't find" in reminder_tools.cancel_reminder.invoke({"query": "ghost"}).lower()
 
-    class Cancelled:
-        text = "call mom"
-
-    monkeypatch.setattr(reminder_tools.reminders, "cancel_reminder", lambda session, q: Cancelled())
+    match = SimpleNamespace(id=1, text="call mom")
+    monkeypatch.setattr(reminder_tools.reminders, "find_pending_matches", lambda session, q: [match])
+    monkeypatch.setattr(reminder_tools.reminders, "cancel_reminder_by_id", lambda session, rid: match)
     assert "call mom" in reminder_tools.cancel_reminder.invoke({"query": "mom"})

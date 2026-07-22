@@ -23,11 +23,14 @@ from sqlmodel import Session
 from app.agent.tools import ALL_TOOLS
 from app.memory.models import Reminder, ReminderStatus
 
-# Tools that cannot run in an offline test: Google APIs, outbound HTTP, a hosted model, or the
-# builder sandbox. Each is covered by its own phase verify script instead.
+# Tools that cannot run standalone in an offline test: Google APIs, outbound HTTP, a hosted model,
+# the builder sandbox — or, for ask_user, the interrupt/resume loop that only exists inside a live
+# graph run. Each is covered elsewhere (its phase verify script, or tests/test_ask_user.py for the
+# choice flow end-to-end).
 NEEDS_EXTERNAL = {
     "calendar_list_events", "gmail_list_recent", "read_email", "create_draft",
     "web_search", "consult_expert", "build_web_app", "make_document", "serve_project",
+    "ask_user",
 }
 
 # Safe arguments for the DB-only tools.

@@ -69,6 +69,20 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 
 ## Current status
 
+**Interaction — buttons for any yes/no or pick-one decision.** Mochi can now put a decision to
+Stephanie as **tappable inline buttons** instead of a prose question she has to type "yes" at (which
+she asked for ~5×, and which was the path that broke — a typed "yes" carries no routing signal). The
+approval spine is generalized from approve/reject to arbitrary options: `confirm.ask_choice(question,
+options)` + a `{"type":"choice"}` interrupt payload, the channel renders one button per option
+(`callback_data="ans:<idx>"`) with a tap toast and a message-edit to the resolved state, and
+`_on_callback` resumes with the tapped index. **Two tiers:** *deterministic* — `cancel_reminder` with
+>1 match shows a picker and cancels exactly the tapped one (proven through the real graph, never
+depends on the 7B); *best-effort* — a general `ask_user(question, options)` tool (always bound, in
+`CORE`) the model calls instead of writing a discrete-choice question, measured ~0/2 firing in free
+conversation so it's a **soft-tier** capability, not a guarantee. The separate calendar-permission
+complaint ("you don't have to ask permission for reading calendar events") is fixed by a persona edit:
+never ask permission to *read* calendar/inbox/memory. See `docs/14-future-work.md` (Resolved).
+
 **Phase 8.1 — the context fix (a root-cause win, and a correction to earlier conclusions).**
 Measured that a turn's prompt is **~3,800–4,050 tokens** while Ollama's default `num_ctx` is **4096**
 — and `num_ctx` covers *prompt + generation*, so only ~75 tokens remained to reply, forcing

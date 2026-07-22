@@ -163,6 +163,56 @@ def main() -> None:
     check("no markdown-header / numbered-list dumping", not dumpy,
           f"{len(dumpy)} dumped | {dumpy[0][:60]!r}" if dumpy else "clean")
 
+    # 5. Buttons for decisions (she asked ~5x for "yes or no buttons that i can click").
+    #    Deterministic anchor: an AMBIGUOUS cancel must surface a `choice` interrupt (buttons),
+    #    not prose — this rides cancel_reminder's own ask_choice, so it doesn't depend on the 7B
+    #    picking a tool. Seed two matching reminders, drive the real agent, look for the interrupt.
+    from datetime import UTC, datetime, timedelta
+
+    from sqlmodel import Session as _Session
+    from sqlmodel import select as _select
+
+    from app.memory.db import get_engine as _get_engine
+    from app.memory.models import Reminder as _Reminder
+    from app.memory.models import ReminderStatus as _RS
+
+    def _seed_two_dentist() -> None:
+        with _Session(_get_engine()) as s:
+            for r in s.exec(_select(_Reminder).where(_Reminder.text.ilike("%dentist%"))):
+                s.delete(r)
+            s.commit()
+            for i, t in enumerate(["dentist appointment", "dentist cleaning follow-up"]):
+                s.add(_Reminder(text=t, due_at=datetime.now(UTC) + timedelta(days=i + 1),
+                                status=_RS.PENDING.value))
+            s.commit()
+
+    def ambiguous_cancel_shows_buttons() -> tuple[bool, str]:
+        _seed_two_dentist()
+        cfg = {"configurable": {"thread_id": f"scn-choice-{uuid.uuid4()}"}}
+        payload = None
+        try:
+            for upd in agent.stream({"messages": [HumanMessage("cancel my dentist reminder")]},
+                                    cfg, stream_mode="updates"):
+                if "__interrupt__" in upd:
+                    payload = upd["__interrupt__"][0].value
+        except Exception as exc:
+            return False, f"stream error: {type(exc).__name__}"
+        ok = bool(payload) and payload.get("type") == "choice" and len(payload.get("options", [])) == 2
+        return ok, (f"choice with {payload.get('options')}" if payload else "no interrupt (asked in prose)")
+
+    sample_check("an ambiguous cancel offers buttons, not a typed question",
+                 ambiguous_cancel_shows_buttons, samples=3, need=1)
+
+    #    Best-effort: the model reaches for ask_user when a question genuinely has discrete options.
+    #    Soft-tier (depends on the 7B choosing the tool), so need=1 of 3 and it's informational.
+    ask_user_prompts = [
+        "should I remind you about the dentist tomorrow morning or the evening?",
+        "do you want the report as a PDF or a Word doc?",
+    ]
+    au = sum(fires(agent, p, "ask_user") for p in ask_user_prompts)
+    check("model can reach for ask_user on a discrete-option question [informational]",
+          True, f"{au}/{len(ask_user_prompts)} fired — best-effort soft-tier, ask_user is always bound (CORE)")
+
     summarize_and_exit()
 
 

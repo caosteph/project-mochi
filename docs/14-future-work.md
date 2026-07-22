@@ -64,21 +64,7 @@ silence looks identical to "nothing to say." **Small.**
 "Mochi has nothing to say" and "Mochi is down" look identical from her phone. Small effort, direct
 trust impact.
 
-### 5. Confirmations must be buttons, not questions in prose
-She asked three times in one conversation — *"there is no button here"*, *"it's yes but i want a
-BUTTON"*, *"BUT MAKE IT A BUTTON NEXT TIME"* — and never got one. Fired reminders already carry
-Done/Snooze buttons (`jobs._keyboard`) and drafts carry Approve/Reject, but anything the *model*
-decides to confirm ("Would you like to proceed?") is plain prose, so the only way to answer is to
-type "yes". That is precisely the path that broke on 2026-07-21: a typed "yes" carries no routing
-signal, so the tool wasn't bound and the confirmation went nowhere.
-
-Buttons fix both halves at once — she taps instead of typing, and the callback carries the
-*action and its arguments* in `callback_data`, soexecution never depends on the model re-deriving intent
-from "yes". Make a confirmation a first-class thing the agent can emit (reuse `render_proposal` +
-`_on_callback`) rather than a sentence it writes. Folds naturally into *Generalizable per-action
-approval layer* below; do them together. **Medium.**
-
-### 6. Re-enable the email signal scanner (the flagship)
+### 5. Re-enable the email signal scanner (the flagship)
 The headline feature — spot a purchase, remind her before the return window closes — is switched
 **off** because early scans were noisy. It now has dedup, a require-due-date filter, per-scan caps,
 go-forward-only baselining, an approval ask, and the context fix that improved extraction. Turn it on
@@ -89,14 +75,14 @@ the project, currently dormant, and the only feature that creates value with zer
 be stated once and respected everywhere repeats the failure that made her stop. A demotion by
 dependency, not by value. **Medium — mostly tuning and judgement, not new code.**
 
-### 7. Voice messages (local transcription)
+### 6. Voice messages (local transcription)
 Handle Telegram voice notes: download the audio, transcribe locally with `whisper.cpp`/`faster-whisper`
 (base model is plenty for short notes), feed the text through the normal turn path. Strictly local —
 audio is personal data, so it never leaves the machine. This is the biggest everyday UX upgrade on a
 phone: capturing a reminder while walking is exactly where typing loses, and it's what makes an
 assistant habitual rather than occasional. **Medium, $0.**
 
-### 8. Secret scanning in CI (a hard rule currently enforced by habit)
+### 7. Secret scanning in CI (a hard rule currently enforced by habit)
 Rule 5 — *secrets never leave the machine and never get committed* — is the **only hard-tier rule not
 enforced by code**. Today it's `.gitignore` plus a human remembering to check that `.env` isn't staged
 before each push. On a **public** repo the failure mode is severe and unrecoverable: a leaked bot token
@@ -107,7 +93,7 @@ outcome × ~20 lines is exactly the shape of thing CLAUDE.md says belongs in the
 in someone's memory. Distinct from *Secrets at rest* below, which is about how `.env` is **stored**;
 this is about it **escaping into git history**. **Small.**
 
-### 9. A fast smoke tier for the gate
+### 8. A fast smoke tier for the gate
 The standing rule is to re-run the tool-firing verifies after *any* persona/tool/graph change — but a
 full `verify_all.sh` measured **21 minutes** wall-clock (2026-07-21). That cost makes it the first
 thing skipped under time pressure, and a skipped gate is precisely how earlier regressions reached
@@ -116,7 +102,7 @@ Stephanie before any test caught them. Add a smoke tier (`verify_smoke.sh`, or a
 full sequential run reserved for pre-push. It doesn't add coverage — it makes the coverage we already
 have cheap enough that the rule is actually followed mid-change instead of only at the end. **Small.**
 
-### 10. Try a newer same-size local model
+### 9. Try a newer same-size local model
 The 2026-07 finding was that *context*, not model capability, was the real bottleneck — so the model
 choice deserves a fair re-test. Build 8k variants of one or two modern 7–8B candidates, A/B them with
 `verify_firing.py` + `verify_scenarios.py` at equal context, and compare firing, coherence, and
@@ -124,7 +110,7 @@ tokens/sec; adopt only on measured improvement (`LOCAL_MODEL` is a one-line swit
 large quality gain for **$0**, and it directly tests whether the ~$1.4k Mac mini is still needed.
 **Small — a few hours of measurement.**
 
-### 11. Measure answer *quality*, not just tool firing
+### 10. Measure answer *quality*, not just tool firing
 Every gate we have asks "did the right tool fire?" and "is the reply free of JSON?" — nothing asks
 "was the answer any good?". SOTA practice is eval-driven: a golden set of conversations scored by an
 LLM judge, gating changes on the score. Cheap here: reuse the existing free hosted model
@@ -133,7 +119,7 @@ properties (correct, grounded in the tool result, no invention, right tone), and
 `verify_all.sh`. Without it, a change can quietly make replies worse while every gate stays green —
 the exact failure class that reached Stephanie before. **Medium.**
 
-### 12. Nightly review pass (her own request)
+### 11. Nightly review pass (her own request)
 She asked for this directly: *"Can you run a nightly dream pass that checks for any mistakes or
 corrections that I had to make for you and then in the morning propose durable fixes."* Mine the day's
 `messagelog` for correction signals — "no", "stop", "I didn't ask for", a reminder cancelled shortly
@@ -142,7 +128,7 @@ changes she can approve. It converts her frustration into durable fixes instead 
 corrections, and it's the only item here that improves the system without her having to report a bug.
 **Medium.**
 
-### 13. Generalizable per-action approval layer
+### 12. Generalizable per-action approval layer
 Today the gate is ad-hoc: `create_draft` and `web_search` call `require_approval` directly and
 `render.render_proposal` switches per action. Promote it to a declared policy — a config map of
 action → {always ask / ask once then remember / never} with a renderer registry, so gating a new
@@ -150,18 +136,23 @@ action is a table entry rather than bespoke code — and extend it to currently-
 like calendar-event mirroring. Stephanie explicitly asked for "ask permission when doing stuff", and
 predictability is what makes a permission model trustworthy. **Medium.**
 
-### 14. Google Drive (read, quarantined)
+*Advanced (2026-07-21):* the interrupt/resume spine is now generalized beyond approve/reject — see
+*Buttons for any yes/no or pick-one decision* in Resolved. `confirm.ask_choice` + the `choice`
+interrupt payload + the `ans:` callback are the reusable half; what's left here is the *policy* layer
+(remember "don't ask again", a registry) rather than the mechanism.
+
+### 13. Google Drive (read, quarantined)
 Mirror the Gmail pattern exactly: least-privilege read-only scope, a search/read tool pair, bodies
 routed through the **quarantined reader** (never into the privileged agent), results
 `frame_untrusted`-wrapped, no write capability. The last major personal data source, and it
 strengthens the receipt/return flows. Now unblocked — tool count is no longer a constraint (~95
 prompt tokens per tool, ~3,200 of headroom). **Medium (new OAuth scope).**
 
-### 15. Email in the daily briefing
+### 14. Email in the daily briefing
 Fold email signals into the morning digest once *Re-enable the email signal scanner* is proven quiet. Currently excluded on purpose
 because the scanner was the noisy part. **Small.**
 
-### 16. A coverage floor in CI
+### 15. A coverage floor in CI
 `pytest-cov` already runs in CI but nothing fails on a drop, so coverage can erode silently — it
 sat at 78% before the last two passes moved it to ~82%. Add a `--cov-fail-under` threshold set just
 below current, and optionally run the one embedding-semantic test file too. Five lines of workflow
@@ -169,7 +160,7 @@ config, blocked on nothing. (Split out of the old "self-hosted CI runner + cover
 the free half with a half that needs ~$1.4k of hardware kept it artificially low on this list.)
 **Small.**
 
-### 17. Speak MCP (Model Context Protocol)
+### 16. Speak MCP (Model Context Protocol)
 The original plan called for off-the-shelf MCP servers via `langchain-mcp-adapters`; we went direct
 instead (right call at the time — fewer moving parts). But MCP is now the ecosystem standard, and an
 MCP client would let Mochi use maintained servers (Drive, Notion, Slack, filesystem, …) instead of a
@@ -177,13 +168,13 @@ bespoke integration each time. Constraint to respect: each bound tool costs ~95 
 adopt MCP *behind* the existing `tool_select` filter rather than binding whole servers. Biggest
 leverage-per-effort for capability breadth. **Medium.**
 
-### 18. Deep-read a web result page (closes an injection residual)
+### 17. Deep-read a web result page (closes an injection residual)
 Web-search snippets are `frame_untrusted`-wrapped — soft-tier "data, not instructions" — rather than
 passed through the dual-LLM boundary. Route fetched pages through `quarantine` like email bodies. This
 matters more the moment we fetch *full* pages for richer answers; today the residual is bounded by
 no-send / gated-writes / local-only. **Medium.**
 
-### 19. Structured run records (turns *and* gate runs)
+### 18. Structured run records (turns *and* gate runs)
 There is no way to answer "why did it do that last Tuesday?", and no way to answer "is the gate
 getting worse?". Both are the same missing thing — a structured row per run — so build one writer with
 two surfaces:
@@ -198,46 +189,46 @@ two surfaces:
 
 Makes regressions diagnosable after the fact instead of only reproducible live. **Small-medium.**
 
-### 20. More search providers
+### 19. More search providers
 Add SearXNG (self-hosted → fully local query routing, the privacy ideal) and Brave behind the existing
 seam; smarter result ranking. Switching is already one config value (`WEB_SEARCH_PROVIDER`). **Small each.**
 
-### 21. Constrained decoding + validated retry for tool calls
+### 20. Constrained decoding + validated retry for tool calls
 The quarantined reader already uses `json_schema` structured output; the main agent's tool calls
 don't — a malformed call just fails the turn. Small models benefit disproportionately from
 constrained decoding plus a single validate-and-retry. Cheap reliability that doesn't depend on
 getting a better model. **Small.**
 
-### 22. Interruptibility (cancel a running turn)
+### 21. Interruptibility (cancel a running turn)
 A turn can't be stopped once it starts — if Mochi misreads a message and begins building the wrong
 thing, Stephanie waits it out. A `/stop` command (plus ignoring superseded turns) is standard
 assistant UX and cheap here. **Small.**
 
-### 23. Alembic migrations
+### 22. Alembic migrations
 `init_db` is `create_all` + hand-written `ALTER`s, and `create_all` won't alter existing tables, so new
 columns are added by hand. Fine at this size, fragile as the schema grows — and *Make memory real*
 and *Measure answer quality* will both grow it.
 **Medium, mostly one-time.**
 
-### 24. Checkpoint pruning
+### 23. Checkpoint pruning
 `PostgresSaver` writes a row per turn and nothing prunes it, so it grows unbounded. A periodic
 retention job (keep last N per thread / last M days). **Small.**
 
-### 25. Docker sandbox for generated code
+### 24. Docker sandbox for generated code
 `SubprocessSandbox` is best-effort — scrubbed env, cwd jail, best-effort `sandbox-exec` — not real
 isolation, and the builder executes model-generated code. The `DockerSandbox` drop-in was always the
 plan (better on the mini). **Medium.**
 
-### 26. Secrets at rest
+### 25. Secrets at rest
 `.env` holds the bot token and hosted API key in plaintext. Keychain was always the plan. **Small-medium.**
 
-### 27. Doc bloat and drift
+### 26. Doc bloat and drift
 `docs/` is ~3,900 lines (`05-phase1-build.md` alone is 1,312). More importantly, this session found
 **three confidently-written conclusions that were wrong**, all downstream of one unmeasured config. Do
 a periodic "does this still match reality?" pass, and prefer linking measurements over restating them.
 **Small, recurring.**
 
-### 28. Mac mini + a larger local model (and the self-hosted gate runner)
+### 27. Mac mini + a larger local model (and the self-hosted gate runner)
 Still the best raw quality lever — reliability, memory headroom, and it's the only way to run the
 **full real-model gate in CI**: `verify_all.sh` can't run on GitHub (no Ollama, by design), so a
 self-hosted runner on the mini is the only path to gating model behavior automatically rather than by
@@ -248,6 +239,38 @@ whether a free model swap gets there. **Hardware + a migration pass.**
 ---
 
 ## ✅ Resolved (kept — the lessons still apply)
+
+### Buttons for any yes/no or pick-one decision (2026-07-21)
+She asked ~five times for tappable buttons — *"please make it yes or no buttons that i can click"*,
+*"if it's a question with multiple concrete options then it should be a button or some sort of
+selector"* — and never got one. Two causes: the model had no way to *emit* a button-backed question
+(so it wrote prose she typed "yes" at, into the void), and it asked permission for reads that need
+none (the calendar).
+
+Reviewed the full Telegram-native surface first (inline keyboards / reply keyboards / polls /
+force-reply). **Inline keyboards win**, and the more "native-looking" options are worse: a reply
+keyboard's tap arrives as an ordinary *text message*, which reintroduces the exact "model re-derives
+intent from words" failure being removed; a poll is survey UI wrong for a 1:1 yes/no.
+
+Generalized the existing approval spine from approve/reject to arbitrary options:
+- `confirm.ask_choice(question, options) -> int` + a `{"type":"choice",...}` interrupt payload
+  (alongside `approval_request`);
+- the channel renders one inline button per option (`callback_data="ans:<idx>"`), and on tap gives a
+  toast and rewrites the question to its resolved state ("Which reminder? → ✅ dentist") instead of
+  leaving dead buttons; `_on_callback` resumes with the tapped index.
+
+**Two tiers, matching the reliability lesson.** *Deterministic:* `cancel_reminder` with >1 match now
+shows a picker and cancels exactly the tapped one — proven end-to-end through the real graph, never
+depends on the 7B. *Best-effort:* a general `ask_user(question, options)` tool (always bound — it's in
+`CORE`) the model calls instead of writing a discrete-choice question; measured at ~0/2 firing in free
+conversation, i.e. a **soft-tier** capability, not a guarantee — the deterministic tier is where the
+reliable value is. The calendar-permission complaint is fixed separately, by a persona edit that says
+never ask permission to *read* calendar/inbox/memory.
+
+Verified: offline mechanism + tap-through (`tests/test_ask_user.py`, `tests/test_cancel_reminder_choice.py`),
+a real-graph interrupt→resume round-trip, and a `verify_scenarios` anchor ("an ambiguous cancel offers
+buttons, not a typed question"). Persona changed → full firing gate re-run. See the *Generalizable
+per-action approval layer* item, which this advances (mechanism done, policy layer remains).
 
 ### The gate was green while the product was broken (2026-07-21)
 

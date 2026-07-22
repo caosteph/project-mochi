@@ -19,6 +19,7 @@ from telegram.ext import ContextTypes
 from app.channels.render import (
     balance_markdown,
     chunk,
+    render_choice,
     render_proposal,
     status_for_tool,
     to_markdown_v2,
@@ -228,29 +229,39 @@ class StreamingMixin:
         reply: str | None,
         user_text: str | None = None,
     ) -> None:
-        """Finish the turn. On approval, show the proposal with Approve/Reject (the
-        reply comes after approval). Otherwise the reply text was already streamed
-        live by _run_with_status, so here we only log it. Logs the turn."""
+        """Finish the turn. An interrupt pauses for either an approval (Approve/Reject) or a
+        discrete-choice question (one button per option); the reply comes after she taps.
+        Otherwise the reply text was already streamed live by _run_with_status, so here we only
+        log it. Logs the turn."""
         if user_text is not None:
             await self._log_turn(chat_id, user_text, None)
 
         if interrupt_payload is not None:
-            proposal = render_proposal(
-                interrupt_payload.get("action", ""), interrupt_payload.get("details", {})
-            )
-            keyboard = InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton("✅ Approve", callback_data="approve"),
-                        InlineKeyboardButton("❌ Reject", callback_data="reject"),
-                    ]
-                ]
-            )
-            await ctx.bot.send_message(chat_id=chat_id, text=proposal, reply_markup=keyboard)
+            await self._prompt_interrupt(chat_id, ctx, interrupt_payload)
             return
 
         # The reply was already streamed into the chat by _run_with_status; just log it.
         await self._log_turn(chat_id, None, reply or "Done.")
+
+    async def _prompt_interrupt(self, chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, payload: dict) -> None:
+        """Render a paused interrupt as a buttoned message. Two shapes share the interrupt spine:
+        a `choice` (one button per option, callback `ans:<idx>`) and everything else — an
+        `approval_request` — as Approve/Reject."""
+        if payload.get("type") == "choice":
+            options = payload.get("options") or []
+            text = render_choice(payload.get("question", ""))
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton(opt, callback_data=f"ans:{i}")] for i, opt in enumerate(options)]
+            )
+        else:
+            text = render_proposal(payload.get("action", ""), payload.get("details", {}))
+            keyboard = InlineKeyboardMarkup(
+                [[
+                    InlineKeyboardButton("✅ Approve", callback_data="approve"),
+                    InlineKeyboardButton("❌ Reject", callback_data="reject"),
+                ]]
+            )
+        await ctx.bot.send_message(chat_id=chat_id, text=text, reply_markup=keyboard)
 
     async def _report_error(self, chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, error: Exception) -> None:
         log.error("Graph run failed", exc_info=error)

@@ -121,6 +121,9 @@ Built in phases; each has a build doc in [`docs/`](./docs).
   fixing it took several previously-dead prompts from 0/23 to 18/18. Plus **launchd supervision**
   with a dependency preflight, a **single-instance lock** (two pollers on one bot token answer every
   message twice), reminder de-duplication, and formatting that renders *while* a reply streams.
+- **Tappable decisions:** when Mochi needs a yes/no or pick-one answer it shows **inline buttons**
+  rather than a question you have to type "yes" at (e.g. cancelling a reminder that matches more than
+  one → a picker). Built on the same human-in-the-loop `interrupt()` spine as draft approval.
 
 ## Roadmap & future work
 

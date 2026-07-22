@@ -36,6 +36,7 @@ TOOL_STATUS = {
     "make_document": "📄 Putting that document together…",
     "serve_project": "🌐 Serving that up…",
     "list_projects": "📁 Checking what I've built…",
+    "ask_user": "🤔 Just need a quick answer…",
 }
 
 _FALLBACK_STATUS = "⏳ Working on it…"
@@ -60,6 +61,20 @@ def render_proposal(action: str, details: dict) -> str:
         f"Subject: {details.get('subject')}\n\n"
         f"{details.get('body')}"
     )
+
+
+def render_choice(question: str) -> str:
+    """The prompt shown above a row of choice buttons. The options are the button labels
+    themselves (rendered by the channel), so this is just the question — kept plain so a long or
+    markdown-ish question can't break the send."""
+    return (question or "Which one?").strip()
+
+
+def render_resolved_choice(question: str, chosen: str) -> str:
+    """What the question message is rewritten to after she taps, so the chat keeps a clean record
+    instead of a dangling question with dead buttons: 'Which one? → ✅ dentist appointment'."""
+    q = (question or "").strip()
+    return f"{q} → ✅ {chosen}" if q else f"✅ {chosen}"
 
 
 def balance_markdown(text: str) -> str:
