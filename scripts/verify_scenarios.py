@@ -113,8 +113,10 @@ def main() -> None:
         cal_replies.append(text)
         return not _NARRATES.search(text), f"{text[:70]!r}"
 
+    # Capability (act vs narrate), measured 8/8 → firm "usually" bar. Narrating "let me check"
+    # instead of answering was a real staleness complaint, not just voice.
     sample_check("answers the calendar instead of promising to check it",
-                 calendar_answers, samples=2, need=1)
+                 calendar_answers, samples=3, need=2)
 
     #    "STOP!!!!!" · "I DONT Wng these reminders" · "never gave permission for this"
     #    The suite had NO must-not-fire check, yet unwanted creation was her loudest complaint.
@@ -133,14 +135,14 @@ def main() -> None:
 
     sample_check("a bare greeting triggers no tool", greeting_fires_nothing, samples=2, need=2)
 
-    greet_replies: list[str] = []
-
-    def greeting_is_short() -> tuple[bool, str]:
-        text = reply_text(agent, "hello")
-        greet_replies.append(text)
-        return len(text) <= 400, f"{len(text)} chars"
-
-    sample_check("a bare greeting gets a short answer", greeting_is_short, samples=2, need=1)
+    #    Greeting *length* is voice, not capability — Mochi's personality is allowed to drift, so
+    #    this is informational (reported, never fails the gate). Per Stephanie: "persona doesn't
+    #    really need to be tested for regressions, it's fine if personality evolves over time."
+    #    The MUST-NOT above (a greeting fires no tool) is the real guard and stays firm.
+    greet_replies = [reply_text(agent, "hello") for _ in range(2)]
+    lengths = [len(t) for t in greet_replies]
+    check("a bare greeting gets a short-ish answer [informational]", True,
+          f"lengths={lengths} — voice, not gated (personality may evolve)")
 
     # 4. Follow-ups: the intent is in an EARLIER turn and the latest message is a bare
     #    confirmation. Taken from her 2026-07-21 conversation, where she asked to cancel a
@@ -201,7 +203,7 @@ def main() -> None:
         return ok, (f"choice with {payload.get('options')}" if payload else "no interrupt (asked in prose)")
 
     sample_check("an ambiguous cancel offers buttons, not a typed question",
-                 ambiguous_cancel_shows_buttons, samples=3, need=1)
+                 ambiguous_cancel_shows_buttons, samples=3, need=2)  # capability, measured 8/8
 
     #    Best-effort: the model reaches for ask_user when a question genuinely has discrete options.
     #    Soft-tier (depends on the 7B choosing the tool), so need=1 of 3 and it's informational.
@@ -212,6 +214,18 @@ def main() -> None:
     au = sum(fires(agent, p, "ask_user") for p in ask_user_prompts)
     check("model can reach for ask_user on a discrete-option question [informational]",
           True, f"{au}/{len(ask_user_prompts)} fired — best-effort soft-tier, ask_user is always bound (CORE)")
+
+    # 6. Staleness / retire (her loudest unaddressed complaint): "I already did X, stop reminding
+    #    me" must route to retire_task, not cancel_reminder or prose. This is a firmer bar than the
+    #    other capability checks — need=2 of 3 ("usually fires"), not need=1 — because the whole
+    #    point is that she stops being nagged, and a 1-in-3 tool that leaves her arguing 2-in-3 is
+    #    not a fix. (verify_firing.py measures the exact rate; this gates "usually".)
+    def retires_a_done_topic() -> tuple[bool, str]:
+        names = tool_calls(agent, "I already submitted the health insurance claims, stop reminding me")
+        return "retire_task" in names, f"fired={names}"
+
+    sample_check("'I already did X, stop reminding me' → retire_task (usually)", retires_a_done_topic,
+                 samples=3, need=2)
 
     summarize_and_exit()
 

@@ -44,6 +44,8 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
     "add_reminder": ("remind", "reminder", "ping me", "nudge me", "don't let me forget"),
     "list_reminders": ("my reminders", "upcoming reminders", "what reminders"),
     "cancel_reminder": ("cancel", "delete the reminder", "remove the reminder"),
+    "retire_task": ("already did", "already done", "no longer need", "stop reminding", "done with",
+                    "that's done", "already submitted", "already finished", "got rejected", "don't need"),
     "calendar_list_events": ("calendar", "schedule", "am i free", "are we free", "meeting", "appointment", "what's on my"),
     "gmail_list_recent": ("inbox", "recent email", "any email", "check my email", "unread", "new emails"),
     "read_email": ("what did", "what does the email", "what's in the email", "read the email", "read me the email", "read my email", "the email from", "summarize the email", "the email say", "what did it say", "gist of the email", "what does it say"),
@@ -63,8 +65,14 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
 # CI), where keyword routing is ALL there is.
 REGEX_BOOSTS: dict[str, re.Pattern] = {
     "cancel_reminder": re.compile(
-        r"\b(cancel|remove|delete|drop|kill|get rid of)\b[^.?!]{0,40}\b(reminder|it|that|those)\b"
-        r"|\b(already (did|done)|no longer need|don'?t need (it|that|this)|stop reminding)\b",
+        r"\b(cancel|remove|delete|drop|kill|get rid of)\b[^.?!]{0,40}\b(reminder|it|that|those)\b",
+        re.I,
+    ),
+    # "I already did X / no longer need it / stop reminding me" → retire the whole topic, not just
+    # cancel one instance. These phrasings are exactly her transcript ("I ALREADY GOT REJECTED …").
+    "retire_task": re.compile(
+        r"\b(already (did|done|submitted|finished|got|have)|no longer need|don'?t need (it|that|this)"
+        r"|stop reminding|got rejected|it'?s (done|over|finished))\b",
         re.I,
     ),
     "list_reminders": re.compile(r"\bwhat.{0,20}\breminders?\b|\breminders?\b.{0,15}\b(do i have|are set)\b", re.I),

@@ -27,7 +27,7 @@ from app.agent import quarantine
 from app.config import settings
 from app.integrations import google_gmail
 from app.memory.models import EmailSignal, IngestState, ProcessedEmail, SignalStatus, SignalType
-from app.proactive import text_match
+from app.proactive import reminders, text_match
 
 log = logging.getLogger(__name__)
 
@@ -183,6 +183,11 @@ def ingest_signals(session: Session, *, service=None, extractor=None, now: datet
             # Dedup: don't offer the same thing twice — six "Palantir Offer …" emails → one offer.
             if _is_duplicate_signal(session, sig.title, now):
                 _mark_processed(session, mid, "duplicate")
+                continue
+            # Never nag about a topic she's retired ("I already did that"). This is why
+            # re-enabling the scanner depends on task-retirement existing.
+            if reminders.is_retired(session, sig.title):
+                _mark_processed(session, mid, "retired")
                 continue
             row = EmailSignal(
                 source=f"gmail:{mid}",

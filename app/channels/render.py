@@ -30,6 +30,7 @@ TOOL_STATUS = {
     "add_reminder": "⏰ Setting that reminder…",
     "list_reminders": "📋 Checking your reminders…",
     "cancel_reminder": "🗑️ Cancelling that reminder…",
+    "retire_task": "✔️ Marking that done for good…",
     "consult_expert": "🧭 Consulting a bigger model…",
     "web_search": "🔎 Searching the web…",
     "build_web_app": "🛠️ Building that…",

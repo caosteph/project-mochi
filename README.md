@@ -124,6 +124,9 @@ Built in phases; each has a build doc in [`docs/`](./docs).
 - **Tappable decisions:** when Mochi needs a yes/no or pick-one answer it shows **inline buttons**
   rather than a question you have to type "yes" at (e.g. cancelling a reminder that matches more than
   one → a picker). Built on the same human-in-the-loop `interrupt()` spine as draft approval.
+- **Tasks can be retired:** tell Mochi you've already done something ("I submitted the claims, stop
+  reminding me") and it records the *topic* as done — cancelling outstanding reminders and blocking any
+  re-creation from a later email — instead of just clearing one reminder that comes back.
 
 ## Roadmap & future work
 

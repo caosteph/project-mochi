@@ -450,3 +450,24 @@ def test_signal_dedup_collapses_same_entity(session, monkeypatch):
     titles = [c.title for c in created]
     # the two Palantir emails collapse to one offer; the dentist is a separate thing
     assert len(created) == 2 and any("Palantir" in t for t in titles) and any("Dentist" in t for t in titles)
+
+
+# --- retired topics are never offered (task-retirement dependency) ----------
+
+def test_retired_topic_is_never_offered_as_a_signal(session, monkeypatch):
+    """A topic Stephanie retired ("I already returned it") must not resurface as an approval ask
+    on a later scan — the reason re-enabling the scanner depends on task-retirement."""
+    from app.proactive import reminders
+
+    reminders.retire_topic(session, "Rain jacket from REI")
+    _init(session)
+    _patch_gmail(monkeypatch, {"m1": _email(subject="jacket")})
+    created = email_signals.ingest_signals(
+        session, extractor=lambda e: _sig(title="Rain jacket from REI", due_date="2026-08-01"),
+        now=datetime.now(UTC),
+    )
+    assert created == []  # retired → skipped, never becomes a detected signal
+    from app.memory.models import ProcessedEmail
+
+    processed = session.exec(select(ProcessedEmail).where(ProcessedEmail.message_id == "m1")).one()
+    assert processed.outcome == "retired"

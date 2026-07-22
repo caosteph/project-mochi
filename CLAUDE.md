@@ -69,6 +69,21 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 
 ## Current status
 
+**Let a task be retired — the staleness root-fix.** Her transcript's loudest pain was Mochi nagging
+about things she'd already done ("I ALREADY GOT REJECTED FROM PERPLEXITY NO NEED TO KEEP REMINDING").
+Root cause: reminders were modeled as *instances* with per-row statuses; nothing recorded that the
+*underlying topic* was over, so cancelling one never stopped the next email/re-add (classic alert
+fatigue — the topic-level "mute" mature alerting always has). New `RetiredTopic` tombstone
+(`app/memory/models.py`) consulted at **both** creation seams: `reminders.retire_topic` records it,
+cancels matching pending reminders, dismisses matching pending signals, marks matching tasks done (all
+via `text_match.same_thing`); `create_or_get_reminder` raises `RetiredTopicError`; the email detector
+skips retired topics — which is why re-enabling the scanner depended on this. A `retire_task` tool
+(keyword+regex-boosted so it routes even with embeddings down) + a one-line persona nudge. Verified:
+real-DB tests per seam (fail-on-old-code), full gate ALL GREEN, HEAD-vs-working bisection clean.
+**Also reclassified the gate's sample-checks** (Stephanie: personality may evolve, don't gate voice):
+capability checks firmed to `need=2 of 3` after measuring each at 8/8; the greeting-length check is now
+informational. See `docs/14-future-work.md` (Resolved).
+
 **Interaction — buttons for any yes/no or pick-one decision.** Mochi can now put a decision to
 Stephanie as **tappable inline buttons** instead of a prose question she has to type "yes" at (which
 she asked for ~5×, and which was the path that broke — a typed "yes" carries no routing signal). The

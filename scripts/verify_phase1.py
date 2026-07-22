@@ -114,7 +114,7 @@ def main() -> None:
         "recall from fresh thread finds 'Biscuit'",
         lambda: recalls_biscuit(agent),
         samples=3,
-        need=1,
+        need=2,  # capability, measured 8/8 → "usually" is a safe firm bar (was 1/3)
     )
 
     # --- 3. add_goal / add_task actually write rows.
@@ -179,7 +179,7 @@ def main() -> None:
         "second independent build_agent() instance recalls the same fact",
         lambda: recalls_biscuit(agent2),
         samples=3,
-        need=1,
+        need=2,  # capability, measured 8/8
     )
 
     # --- 6. No-network guard sanity: embed_local only ever hits localhost.

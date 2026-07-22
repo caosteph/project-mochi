@@ -129,3 +129,21 @@ def test_routing_survives_the_embedding_backend_being_down():
         for turns, want in cases:
             names = {t.name for t in tool_select.select_tools("\n".join(turns), ALL_TOOLS)}
             assert want in names, f"{want} unbound without embeddings for {turns[-1]!r}: {sorted(names)}"
+
+
+def test_retire_task_binds_on_her_phrasings_including_without_embeddings():
+    """The staleness fix is worthless if the tool isn't bound when she says the trigger phrases.
+    Checked both with embeddings and on the keyword/regex-only fallback (CI / Ollama down)."""
+    from unittest.mock import patch
+
+    phrasings = [
+        "I already did the health insurance claims, stop reminding me",
+        "I got rejected from perplexity, no need to keep reminding me about it",
+        "I already submitted the form",
+        "I don't need that reminder anymore",
+    ]
+    for p in phrasings:  # with embeddings
+        assert "retire_task" in selected(p), f"retire_task not bound for {p!r}"
+    with patch.object(tool_select, "embed_local", side_effect=RuntimeError("no ollama")):
+        for p in phrasings:  # keyword/regex only
+            assert "retire_task" in selected(p), f"retire_task not bound (no embeddings) for {p!r}"

@@ -21,20 +21,7 @@ git-ignored `backups/` dir, rotated, scheduled daily via launchd (mirroring the 
 restored once into a scratch DB to prove it actually works. Best risk-to-effort ratio on this list:
 a disk failure or a bad migration currently erases the whole point of the project. **Small (~20 lines).**
 
-### 2. Let a task be retired
-Nothing can mark a task dead. She was rejected from Perplexity and wrote "I ALRWADY GOT REJEXTED FROM
-PERPLECITH NO NEED TO KEEP REMINDING" — and "Perplexity prep" kept being recreated (8 rows), still
-pending for the next morning until it was cancelled by hand. Cancelling one instance doesn't stop the
-next recreation, because nothing records that the *underlying thing* is over. Add an explicit
-"that's done / that's dead" path — a `retire_task` tool plus a tombstone the reminder and
-email-signal paths consult before creating — so obsolescence is stated once and respected everywhere.
-This, not dedup, is the real fix for what made her stop using it. **Medium.**
-
-**Promoted (2026-07-21):** this now sits above the email signal scanner. Re-enabling proactive
-detection before there's a way to say "that's over" would recreate exactly the loop that ended her
-usage — she'd get new auto-created reminders with no mechanism to kill the underlying thing.
-
-### 3. Make memory real (capture first, then structure)
+### 2. Make memory real (capture first, then structure)
 The premise is "holds long-term memory about her life" — the production DB has **1 fact from 89
 messages**. Two stages, deliberately one item: there is no point structuring memory that isn't being
 captured, and splitting them invites building (b) first.
@@ -52,7 +39,7 @@ persona already uses ~3,600 of the 8k window.
 Without (a) this is a capable chatbot with tools, not a personal agent; with both it's *hers*. It
 compounds: briefing, replies, and proactivity all improve when memory is real. **Medium, diagnosis-led.**
 
-### 4. Liveness heartbeat + `/status`
+### 3. Liveness heartbeat + `/status`
 launchd's `KeepAlive` restarts a process that *exits*, but not one that's wedged (hung poll, dead DB
 connection, unloaded model). Add a self-check that verifies the essentials — polling alive, Postgres
 reachable, Ollama responding, last tick recent — and self-heals or pings the chat on failure, plus a
@@ -64,25 +51,26 @@ silence looks identical to "nothing to say." **Small.**
 "Mochi has nothing to say" and "Mochi is down" look identical from her phone. Small effort, direct
 trust impact.
 
-### 5. Re-enable the email signal scanner (the flagship)
+### 4. Re-enable the email signal scanner (the flagship)
 The headline feature — spot a purchase, remind her before the return window closes — is switched
 **off** because early scans were noisy. It now has dedup, a require-due-date filter, per-scan caps,
 go-forward-only baselining, an approval ask, and the context fix that improved extraction. Turn it on
 in shadow mode first (log detections without pushing), hand-check precision for a few days, tighten,
 then enable the proactive ask with `/pause` as the kill switch. It's the differentiator that motivated
 the project, currently dormant, and the only feature that creates value with zero effort from her.
-**Depends on *Let a task be retired*** — turning noisy proactivity back on before obsolescence can
-be stated once and respected everywhere repeats the failure that made her stop. A demotion by
-dependency, not by value. **Medium — mostly tuning and judgement, not new code.**
+**Its dependency (*Let a task be retired*) is now shipped** — the detector skips retired topics, so
+turning proactivity back on no longer risks nagging about things she's marked done. This is now the
+top *capability* item. Turn it on in shadow mode first, hand-check precision, then enable the ask.
+**Medium — mostly tuning and judgement, not new code.**
 
-### 6. Voice messages (local transcription)
+### 5. Voice messages (local transcription)
 Handle Telegram voice notes: download the audio, transcribe locally with `whisper.cpp`/`faster-whisper`
 (base model is plenty for short notes), feed the text through the normal turn path. Strictly local —
 audio is personal data, so it never leaves the machine. This is the biggest everyday UX upgrade on a
 phone: capturing a reminder while walking is exactly where typing loses, and it's what makes an
 assistant habitual rather than occasional. **Medium, $0.**
 
-### 7. Secret scanning in CI (a hard rule currently enforced by habit)
+### 6. Secret scanning in CI (a hard rule currently enforced by habit)
 Rule 5 — *secrets never leave the machine and never get committed* — is the **only hard-tier rule not
 enforced by code**. Today it's `.gitignore` plus a human remembering to check that `.env` isn't staged
 before each push. On a **public** repo the failure mode is severe and unrecoverable: a leaked bot token
@@ -93,7 +81,7 @@ outcome × ~20 lines is exactly the shape of thing CLAUDE.md says belongs in the
 in someone's memory. Distinct from *Secrets at rest* below, which is about how `.env` is **stored**;
 this is about it **escaping into git history**. **Small.**
 
-### 8. A fast smoke tier for the gate
+### 7. A fast smoke tier for the gate
 The standing rule is to re-run the tool-firing verifies after *any* persona/tool/graph change — but a
 full `verify_all.sh` measured **21 minutes** wall-clock (2026-07-21). That cost makes it the first
 thing skipped under time pressure, and a skipped gate is precisely how earlier regressions reached
@@ -102,7 +90,7 @@ Stephanie before any test caught them. Add a smoke tier (`verify_smoke.sh`, or a
 full sequential run reserved for pre-push. It doesn't add coverage — it makes the coverage we already
 have cheap enough that the rule is actually followed mid-change instead of only at the end. **Small.**
 
-### 9. Try a newer same-size local model
+### 8. Try a newer same-size local model
 The 2026-07 finding was that *context*, not model capability, was the real bottleneck — so the model
 choice deserves a fair re-test. Build 8k variants of one or two modern 7–8B candidates, A/B them with
 `verify_firing.py` + `verify_scenarios.py` at equal context, and compare firing, coherence, and
@@ -110,7 +98,7 @@ tokens/sec; adopt only on measured improvement (`LOCAL_MODEL` is a one-line swit
 large quality gain for **$0**, and it directly tests whether the ~$1.4k Mac mini is still needed.
 **Small — a few hours of measurement.**
 
-### 10. Measure answer *quality*, not just tool firing
+### 9. Measure answer *quality*, not just tool firing
 Every gate we have asks "did the right tool fire?" and "is the reply free of JSON?" — nothing asks
 "was the answer any good?". SOTA practice is eval-driven: a golden set of conversations scored by an
 LLM judge, gating changes on the score. Cheap here: reuse the existing free hosted model
@@ -119,7 +107,7 @@ properties (correct, grounded in the tool result, no invention, right tone), and
 `verify_all.sh`. Without it, a change can quietly make replies worse while every gate stays green —
 the exact failure class that reached Stephanie before. **Medium.**
 
-### 11. Nightly review pass (her own request)
+### 10. Nightly review pass (her own request)
 She asked for this directly: *"Can you run a nightly dream pass that checks for any mistakes or
 corrections that I had to make for you and then in the morning propose durable fixes."* Mine the day's
 `messagelog` for correction signals — "no", "stop", "I didn't ask for", a reminder cancelled shortly
@@ -128,7 +116,7 @@ changes she can approve. It converts her frustration into durable fixes instead 
 corrections, and it's the only item here that improves the system without her having to report a bug.
 **Medium.**
 
-### 12. Generalizable per-action approval layer
+### 11. Generalizable per-action approval layer
 Today the gate is ad-hoc: `create_draft` and `web_search` call `require_approval` directly and
 `render.render_proposal` switches per action. Promote it to a declared policy — a config map of
 action → {always ask / ask once then remember / never} with a renderer registry, so gating a new
@@ -141,18 +129,18 @@ predictability is what makes a permission model trustworthy. **Medium.**
 interrupt payload + the `ans:` callback are the reusable half; what's left here is the *policy* layer
 (remember "don't ask again", a registry) rather than the mechanism.
 
-### 13. Google Drive (read, quarantined)
+### 12. Google Drive (read, quarantined)
 Mirror the Gmail pattern exactly: least-privilege read-only scope, a search/read tool pair, bodies
 routed through the **quarantined reader** (never into the privileged agent), results
 `frame_untrusted`-wrapped, no write capability. The last major personal data source, and it
 strengthens the receipt/return flows. Now unblocked — tool count is no longer a constraint (~95
 prompt tokens per tool, ~3,200 of headroom). **Medium (new OAuth scope).**
 
-### 14. Email in the daily briefing
+### 13. Email in the daily briefing
 Fold email signals into the morning digest once *Re-enable the email signal scanner* is proven quiet. Currently excluded on purpose
 because the scanner was the noisy part. **Small.**
 
-### 15. A coverage floor in CI
+### 14. A coverage floor in CI
 `pytest-cov` already runs in CI but nothing fails on a drop, so coverage can erode silently — it
 sat at 78% before the last two passes moved it to ~82%. Add a `--cov-fail-under` threshold set just
 below current, and optionally run the one embedding-semantic test file too. Five lines of workflow
@@ -160,7 +148,7 @@ config, blocked on nothing. (Split out of the old "self-hosted CI runner + cover
 the free half with a half that needs ~$1.4k of hardware kept it artificially low on this list.)
 **Small.**
 
-### 16. Speak MCP (Model Context Protocol)
+### 15. Speak MCP (Model Context Protocol)
 The original plan called for off-the-shelf MCP servers via `langchain-mcp-adapters`; we went direct
 instead (right call at the time — fewer moving parts). But MCP is now the ecosystem standard, and an
 MCP client would let Mochi use maintained servers (Drive, Notion, Slack, filesystem, …) instead of a
@@ -168,13 +156,13 @@ bespoke integration each time. Constraint to respect: each bound tool costs ~95 
 adopt MCP *behind* the existing `tool_select` filter rather than binding whole servers. Biggest
 leverage-per-effort for capability breadth. **Medium.**
 
-### 17. Deep-read a web result page (closes an injection residual)
+### 16. Deep-read a web result page (closes an injection residual)
 Web-search snippets are `frame_untrusted`-wrapped — soft-tier "data, not instructions" — rather than
 passed through the dual-LLM boundary. Route fetched pages through `quarantine` like email bodies. This
 matters more the moment we fetch *full* pages for richer answers; today the residual is bounded by
 no-send / gated-writes / local-only. **Medium.**
 
-### 18. Structured run records (turns *and* gate runs)
+### 17. Structured run records (turns *and* gate runs)
 There is no way to answer "why did it do that last Tuesday?", and no way to answer "is the gate
 getting worse?". Both are the same missing thing — a structured row per run — so build one writer with
 two surfaces:
@@ -189,46 +177,46 @@ two surfaces:
 
 Makes regressions diagnosable after the fact instead of only reproducible live. **Small-medium.**
 
-### 19. More search providers
+### 18. More search providers
 Add SearXNG (self-hosted → fully local query routing, the privacy ideal) and Brave behind the existing
 seam; smarter result ranking. Switching is already one config value (`WEB_SEARCH_PROVIDER`). **Small each.**
 
-### 20. Constrained decoding + validated retry for tool calls
+### 19. Constrained decoding + validated retry for tool calls
 The quarantined reader already uses `json_schema` structured output; the main agent's tool calls
 don't — a malformed call just fails the turn. Small models benefit disproportionately from
 constrained decoding plus a single validate-and-retry. Cheap reliability that doesn't depend on
 getting a better model. **Small.**
 
-### 21. Interruptibility (cancel a running turn)
+### 20. Interruptibility (cancel a running turn)
 A turn can't be stopped once it starts — if Mochi misreads a message and begins building the wrong
 thing, Stephanie waits it out. A `/stop` command (plus ignoring superseded turns) is standard
 assistant UX and cheap here. **Small.**
 
-### 22. Alembic migrations
+### 21. Alembic migrations
 `init_db` is `create_all` + hand-written `ALTER`s, and `create_all` won't alter existing tables, so new
 columns are added by hand. Fine at this size, fragile as the schema grows — and *Make memory real*
 and *Measure answer quality* will both grow it.
 **Medium, mostly one-time.**
 
-### 23. Checkpoint pruning
+### 22. Checkpoint pruning
 `PostgresSaver` writes a row per turn and nothing prunes it, so it grows unbounded. A periodic
 retention job (keep last N per thread / last M days). **Small.**
 
-### 24. Docker sandbox for generated code
+### 23. Docker sandbox for generated code
 `SubprocessSandbox` is best-effort — scrubbed env, cwd jail, best-effort `sandbox-exec` — not real
 isolation, and the builder executes model-generated code. The `DockerSandbox` drop-in was always the
 plan (better on the mini). **Medium.**
 
-### 25. Secrets at rest
+### 24. Secrets at rest
 `.env` holds the bot token and hosted API key in plaintext. Keychain was always the plan. **Small-medium.**
 
-### 26. Doc bloat and drift
+### 25. Doc bloat and drift
 `docs/` is ~3,900 lines (`05-phase1-build.md` alone is 1,312). More importantly, this session found
 **three confidently-written conclusions that were wrong**, all downstream of one unmeasured config. Do
 a periodic "does this still match reality?" pass, and prefer linking measurements over restating them.
 **Small, recurring.**
 
-### 27. Mac mini + a larger local model (and the self-hosted gate runner)
+### 26. Mac mini + a larger local model (and the self-hosted gate runner)
 Still the best raw quality lever — reliability, memory headroom, and it's the only way to run the
 **full real-model gate in CI**: `verify_all.sh` can't run on GitHub (no Ollama, by design), so a
 self-hosted runner on the mini is the only path to gating model behavior automatically rather than by
@@ -239,6 +227,39 @@ whether a free model swap gets there. **Hardware + a migration pass.**
 ---
 
 ## ✅ Resolved (kept — the lessons still apply)
+
+### Let a task be retired — the staleness root-fix (2026-07-22)
+Her transcript's loudest unaddressed pain: Mochi fired and asked about reminders she'd already
+handled ("THIS IS SO STALE WHY WOULD YOU ASK", "I ALREADY GOT REJECTED FROM PERPLEXITY NO NEED TO
+KEEP REMINDING"). **Why it was possible:** a reminder was modeled as an *instance* with a per-row
+status; suppression existed only at instance level (`SignalStatus.DISMISSED`, a 14-day dedup window),
+never at the *topic* level — so cancelling one instance never stopped the next email or re-add. That's
+the "mute this alert forever" that every mature alerting system treats as first-class; we'd built
+create + snooze + cancel-instance and hit alert fatigue exactly as the literature predicts.
+
+Fix: a `RetiredTopic` tombstone consulted at **both** creation seams. `retire_topic` records it,
+cancels matching pending reminders, dismisses matching pending email signals (so an already-detected
+topic can't slip through the approve button), and marks matching tasks done — all via
+`text_match.same_thing`, the fuzzy matcher de-dup and cancel already use (validated: "the health
+insurance thing" ≡ "submit health insurance claims", but not "dentist"). A `retire_task` tool (bound on
+her phrasings by keyword + regex, so it routes even with embeddings down) plus a one-line persona nudge.
+`create_or_get_reminder` now raises `RetiredTopicError` for a retired topic; the email detector skips
+it at detection — which is why re-enabling the scanner depended on this.
+
+Verified: real-DB offline tests for every seam (each confirmed to fail on the pre-change code), the
+new table added to the truncate list (a latent leak the first test caught), full gate ALL GREEN with a
+firmed-up `verify_scenarios` check ("I already did X, stop reminding me" → retire_task, need=2 of 3),
+and a HEAD-vs-working firing bisection showing no regression. Also cleaned 2 stale reminders from her
+production DB. See CLAUDE.md.
+
+### sample_check bars: firm for capability, informational for voice (2026-07-22)
+Stephanie: "persona doesn't really need to be tested for regressions — it's fine if personality
+evolves." So the gate's stochastic checks were reclassified: *capability/safety* checks earned firmer
+bars, *voice* checks were loosened. Measured each candidate's real firing rate at N=8 first (all 8/8,
+so `need=2 of 3` is safe — a bar you haven't measured just reintroduces the flaky-gate problem
+`sample_check` exists to prevent): recall (×2), calendar-answers-vs-narrates, and ambiguous-cancel all
+went `need=1 → need=2` ("usually"); "a bare greeting is short" became **informational** (length is
+voice, not a regression). Must-not checks stay `need=samples`.
 
 ### Buttons for any yes/no or pick-one decision (2026-07-21)
 She asked ~five times for tappable buttons — *"please make it yes or no buttons that i can click"*,

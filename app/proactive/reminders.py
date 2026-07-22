@@ -24,8 +24,11 @@ from app.memory.models import (
     Reminder,
     ReminderKind,
     ReminderStatus,
+    RetiredTopic,
     SignalStatus,
     SignalType,
+    Task,
+    TaskStatus,
 )
 from app.proactive import text_match
 
@@ -33,6 +36,52 @@ log = logging.getLogger(__name__)
 
 _RECURRENCES = {r.value for r in Recurrence}
 _WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
+
+class RetiredTopicError(ValueError):
+    """Raised when something tries to create a reminder for a topic Stephanie has retired.
+    Consistent with ReminderParseError — the caller turns it into a friendly reply."""
+
+
+def is_retired(session: Session, text: str) -> bool:
+    """True if `text` fuzzy-matches a retired topic (text_match.same_thing — the matcher de-dup and
+    cancel already use). Read-only; safe to call on every create."""
+    return any(text_match.same_thing(text, t.text) for t in session.exec(select(RetiredTopic)))
+
+
+def retire_topic(session: Session, text: str) -> tuple[str, int]:
+    """Record a tombstone for `text` and clear everything already outstanding for it: cancel every
+    pending/sent reminder that matches, dismiss any pending EmailSignal that matches (so an
+    already-detected topic can't slip through the approve button), and mark matching open tasks
+    done. Returns (text, number of reminders cancelled). Idempotent-ish: a second retire of the
+    same topic just adds another tombstone row (harmless) and finds nothing left to clear.
+
+    Returns plain values (never an ORM instance), so a caller reading the result after the session
+    closes can't hit DetachedInstanceError — the bug class that bit cancel/snooze three times."""
+    session.add(RetiredTopic(text=text))
+
+    cancelled = 0
+    for match in find_pending_matches(session, text):
+        if cancel_reminder_by_id(session, match.id) is not None:
+            cancelled += 1
+
+    for signal in session.exec(
+        select(EmailSignal).where(
+            EmailSignal.status.in_([SignalStatus.DETECTED.value, SignalStatus.ASKED.value])
+        )
+    ):
+        if text_match.same_thing(text, signal.title):
+            signal.status = SignalStatus.DISMISSED.value
+            session.add(signal)
+
+    for task in session.exec(select(Task).where(Task.status == TaskStatus.OPEN.value)):
+        if text_match.same_thing(text, task.text):
+            task.status = TaskStatus.DONE.value
+            task.completed_at = datetime.now(UTC)
+            session.add(task)
+
+    session.commit()
+    return text, cancelled
 
 
 class ReminderParseError(ValueError):
@@ -241,8 +290,11 @@ def create_or_get_reminder(
     Returns `(reminder, created)`. The flag matters for what the agent *says*: silently
     reporting "done, I'll remind you" when nothing new was created is how Stephanie ended up
     believing she had reminders she didn't, and being surprised by ones she did.
-    Raises ReminderParseError on an unparseable/past time (nothing is created).
+    Raises ReminderParseError on an unparseable/past time, or RetiredTopicError if she's told me
+    this topic is over (nothing is created in either case).
     """
+    if is_retired(session, text):
+        raise RetiredTopicError(text)
     due_at, rec = parse_when(when, recurrence, now=now)
     duplicate = _find_duplicate(session, text, due_at)
     if duplicate is not None:

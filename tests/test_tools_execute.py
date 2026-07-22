@@ -42,6 +42,7 @@ ARGS = {
     "list_reminders": {},
     "cancel_reminder": {"query": "a reminder that does not exist"},
     "add_reminder": {"text": "water the plants", "when": "tomorrow at 3pm"},
+    "retire_task": {"topic": "some finished thing"},
     "list_projects": {},
 }
 

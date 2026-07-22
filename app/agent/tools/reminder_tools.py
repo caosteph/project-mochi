@@ -33,6 +33,8 @@ def add_reminder(
             )
         except reminders.ReminderParseError as exc:
             return f"I couldn't pin down when — {exc}. Give me a specific time like 'tomorrow at 3pm'."
+        except reminders.RetiredTopicError:
+            return f"You told me {text!r} is done, so I'm not setting that again. Say 'un-retire it' if that's changed."
         rec = f", repeating {reminder.recurrence}" if reminder.recurrence else ""
         when_str = f"{reminder.due_at.astimezone():%a %b %-d at %-I:%M %p}"
         if not created:
@@ -93,4 +95,22 @@ def cancel_reminder(query: str) -> str:
     return f"Cancelled: {target_text}."
 
 
-REMINDER_TOOLS = [add_reminder, list_reminders, cancel_reminder]
+@tool
+def retire_task(topic: str) -> str:
+    """Mark a whole topic as DONE / no-longer-wanted, so Mochi stops nagging about it — for good,
+    not just this once.
+
+    Use this (not `cancel_reminder`) when Stephanie says she's already done something, no longer
+    needs it, or wants you to stop reminding her about it (e.g. "I already submitted the claims",
+    "I got rejected from Perplexity, stop reminding me"). It records that the topic is over,
+    cancels any pending reminders for it, and dismisses any related email nudges — so a later email
+    or a re-scan can't resurrect it. `topic` is a short description of the thing that's done
+    ("health insurance claims", "Perplexity prep")."""
+    with Session(get_engine()) as session:
+        topic_text, cancelled = reminders.retire_topic(session, topic)
+    if cancelled:
+        return f"Done — I won't bring up {topic_text!r} again (cleared {cancelled} reminder{'s' if cancelled != 1 else ''})."
+    return f"Done — I won't bring up {topic_text!r} again."
+
+
+REMINDER_TOOLS = [add_reminder, list_reminders, cancel_reminder, retire_task]

@@ -114,6 +114,20 @@ class Task(SQLModel, table=True):
     completed_at: datetime | None = Field(default=None, sa_column=_tz_column(nullable=True))
 
 
+class RetiredTopic(SQLModel, table=True):
+    """A tombstone: "this underlying thing is over — never nag about it again."
+
+    Reminders and tasks have per-row statuses, but cancelling one instance never stopped the next
+    recreation (an email re-scan, a user re-add), because obsolescence was only ever recorded at
+    the instance level. This is the topic-level mute the reminder- and signal-creation paths
+    consult before making anything (see reminders.is_retired). `text` is matched fuzzily via
+    text_match.same_thing, the same primitive de-dup and cancel use."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    text: str
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+
+
 class Purchase(SQLModel, table=True):
     """A purchase with a return window. Seeded by hand in Phase 3A; auto-created
     from Gmail receipts (via the quarantined reader) in Phase 3B."""
