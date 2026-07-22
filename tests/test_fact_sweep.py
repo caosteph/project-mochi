@@ -57,10 +57,9 @@ def test_no_facts_stores_nothing(monkeypatch):
     assert calls == []
 
 
-def test_channel_fact_sweep_swallows_errors(monkeypatch):
+def test_channel_fact_sweep_swallows_errors(channel, monkeypatch):
     from app.channels import telegram
 
-    chan = telegram.TelegramChannel.__new__(telegram.TelegramChannel)
     monkeypatch.setattr(telegram, "get_engine", lambda: (_ for _ in ()).throw(RuntimeError("no db")))
     # Must not raise even though the sweep blows up — the turn is already delivered.
-    asyncio.run(chan._fact_sweep("I'm allergic to peanuts"))
+    asyncio.run(channel._fact_sweep("I'm allergic to peanuts"))

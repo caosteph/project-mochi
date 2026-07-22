@@ -43,14 +43,11 @@ def test_writing_through_an_unpatched_engine_stays_in_the_scratch_db():
     assert "test" in str(get_engine().url)
 
 
-def test_channel_turn_logging_does_not_escape_to_production():
+def test_channel_turn_logging_does_not_escape_to_production(channel):
     """Directly exercises the path that leaked: TelegramChannel._log_one, unpatched."""
     import asyncio
 
-    from app.channels import telegram
-
-    chan = telegram.TelegramChannel.__new__(telegram.TelegramChannel)
-    asyncio.run(chan._log_turn(1, "user side", "assistant side"))
+    asyncio.run(channel._log_turn(1, "user side", "assistant side"))
     with Session(get_engine()) as s:
         texts = {m.text for m in s.exec(select(MessageLog))}
     assert {"user side", "assistant side"} <= texts

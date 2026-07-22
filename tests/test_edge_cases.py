@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 from app.agent import router, sanitize
 from app.agent.router import Sensitivity
-from app.channels import telegram
 from app.config import settings
 from app.memory import extract
 from app.proactive import email_signals
@@ -19,21 +18,6 @@ class _FakeExtractor:
 
     def invoke(self, messages):
         return extract.ExtractedFacts(facts=self._facts)
-
-
-class _Bot:
-    def __init__(self):
-        self.calls = []
-
-    async def send_message(self, chat_id, text, parse_mode=None, **k):
-        self.calls.append((text, parse_mode))
-        return SimpleNamespace(message_id=len(self.calls))
-
-
-def _chan():
-    c = telegram.TelegramChannel.__new__(telegram.TelegramChannel)
-    c._ask_threads = {}
-    return c
 
 
 # --- router: empty-string config must fail closed (not just None) --------------
@@ -85,34 +69,30 @@ def test_extract_facts_truncates_long_fact():
 
 # --- /ask UX edge cases --------------------------------------------------------
 
-def test_send_rich_handles_none_text():
-    bot = _Bot()
-    asyncio.run(_chan()._send_rich(bot, 1, None))
-    assert bot.calls and "…" in bot.calls[0][0]
+def test_send_rich_handles_none_text(channel, fake_bot):
+    asyncio.run(channel._send_rich(fake_bot, 1, None))
+    assert fake_bot.texts and "…" in fake_bot.texts[0]
 
 
-def test_send_rich_chunks_over_length():
-    bot = _Bot()
+def test_send_rich_chunks_over_length(channel, fake_bot):
     long_text = "word " * 1200  # ~6000 chars → exceeds the 4096 limit
-    last = asyncio.run(_chan()._send_rich(bot, 1, long_text))
-    assert len(bot.calls) >= 2  # split into multiple messages
-    assert last.message_id == len(bot.calls)  # returns the last sent message
-    assert all(len(text) <= 4096 for text, _ in bot.calls)
+    last = asyncio.run(channel._send_rich(fake_bot, 1, long_text))
+    assert len(fake_bot.messages) >= 2  # split into multiple messages
+    assert last.message_id == len(fake_bot.messages)  # returns the last sent message
+    assert all(len(m.text) <= 4096 for m in fake_bot.messages)
 
 
-def test_remember_ask_cap_keeps_recent_drops_oldest():
-    chan = _chan()
+def test_remember_ask_cap_keeps_recent_drops_oldest(channel):
     for i in range(60):
-        chan._remember_ask(SimpleNamespace(message_id=i), [i])
-    assert len(chan._ask_threads) == 50
-    assert set(chan._ask_threads) == set(range(10, 60))  # oldest 10 evicted
-    assert 0 not in chan._ask_threads
+        channel._remember_ask(SimpleNamespace(message_id=i), [i])
+    assert len(channel._ask_threads) == 50
+    assert set(channel._ask_threads) == set(range(10, 60))  # oldest 10 evicted
+    assert 0 not in channel._ask_threads
 
 
-def test_remember_ask_ignores_none_message():
-    chan = _chan()
-    chan._remember_ask(None, ["x"])  # must not raise
-    assert chan._ask_threads == {}
+def test_remember_ask_ignores_none_message(channel):
+    channel._remember_ask(None, ["x"])  # must not raise
+    assert channel._ask_threads == {}
 
 
 # --- email-signal edge cases ---------------------------------------------------

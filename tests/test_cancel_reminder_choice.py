@@ -5,11 +5,9 @@ end-to-end without depending on the 7B choosing a tool. It's also the exact scen
 transcript: she asked to "remove the outdated reminder" with more than one candidate and got prose
 loops instead of a picker.
 
-Real database (mocked sessions can't reproduce the session-scope bugs this area keeps hitting);
-the interrupt boundary is faked to simulate her tap.
+Real database (mocked sessions can't reproduce the session-scope bugs this area keeps hitting); the
+`seed` factory provides rows and the interrupt boundary is faked to simulate her tap.
 """
-
-from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlmodel import Session
@@ -20,15 +18,6 @@ from app.memory.models import Reminder, ReminderStatus
 from app.proactive import reminders
 
 
-def _add(engine, text, days=1):
-    with Session(engine) as s:
-        r = Reminder(text=text, due_at=datetime.now(UTC) + timedelta(days=days),
-                     status=ReminderStatus.PENDING.value)
-        s.add(r)
-        s.commit()
-        return r.id
-
-
 def _status(engine, rid):
     with Session(engine) as s:
         return s.get(Reminder, rid).status
@@ -36,8 +25,9 @@ def _status(engine, rid):
 
 # --- single match: no button, just cancel (her chosen behaviour) ------------
 
-def test_one_match_cancels_directly(engine, monkeypatch):
-    rid = _add(engine, "dentist appointment")
+
+def test_one_match_cancels_directly(engine, seed, monkeypatch):
+    rid = seed.reminder("dentist appointment").id
     # If it tried to ask, that's a bug — one match must not prompt.
     monkeypatch.setattr(reminder_tools, "ask_choice",
                         lambda *a: pytest.fail("should not ask when there's a single match"))
@@ -52,9 +42,10 @@ def test_no_match_says_so(engine):
 
 # --- several matches: a picker, and only the tapped one is cancelled --------
 
-def test_ambiguous_match_asks_which_and_cancels_the_tapped_one(engine, monkeypatch):
-    a = _add(engine, "dentist appointment", days=1)
-    b = _add(engine, "dentist cleaning follow-up", days=2)
+
+def test_ambiguous_match_asks_which_and_cancels_the_tapped_one(engine, seed, monkeypatch):
+    a = seed.reminder("dentist appointment", days=1).id
+    b = seed.reminder("dentist cleaning follow-up", days=2).id
 
     asked = {}
 
@@ -75,9 +66,9 @@ def test_ambiguous_match_asks_which_and_cancels_the_tapped_one(engine, monkeypat
     assert _status(engine, a) == ReminderStatus.PENDING.value
 
 
-def test_ambiguous_then_no_choice_cancels_nothing(engine, monkeypatch):
-    a = _add(engine, "dentist appointment")
-    b = _add(engine, "dentist cleaning follow-up")
+def test_ambiguous_then_no_choice_cancels_nothing(engine, seed, monkeypatch):
+    a = seed.reminder("dentist appointment").id
+    b = seed.reminder("dentist cleaning follow-up").id
     monkeypatch.setattr(reminder_tools, "ask_choice", lambda *a: -1)  # she dismissed it
     out = cancel_reminder.invoke({"query": "dentist"})
     assert "didn't cancel" in out.lower()
@@ -87,9 +78,10 @@ def test_ambiguous_then_no_choice_cancels_nothing(engine, monkeypatch):
 
 # --- the read-only finder the tool relies on --------------------------------
 
-def test_find_pending_matches_is_readonly_and_ranked(engine):
-    _add(engine, "dentist appointment", days=2)
-    _add(engine, "dentist cleaning follow-up", days=1)
+
+def test_find_pending_matches_is_readonly_and_ranked(engine, seed):
+    seed.reminder("dentist appointment", days=2)
+    seed.reminder("dentist cleaning follow-up", days=1)
     with Session(engine) as s:
         matches = reminders.find_pending_matches(s, "dentist")
         # both match, nothing cancelled by looking
@@ -97,8 +89,8 @@ def test_find_pending_matches_is_readonly_and_ranked(engine):
         assert all(m.status == ReminderStatus.PENDING.value for m in matches)
 
 
-def test_find_pending_matches_ignores_already_cancelled(engine):
-    rid = _add(engine, "dentist appointment")
+def test_find_pending_matches_ignores_already_cancelled(engine, seed):
+    rid = seed.reminder("dentist appointment").id
     with Session(engine) as s:
         reminders.cancel_reminder_by_id(s, rid)
     with Session(engine) as s:

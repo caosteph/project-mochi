@@ -22,6 +22,7 @@ from app.config import settings
 from app.integrations import google_gmail
 from app.memory.models import EmailSignal, ProcessedEmail, Reminder, SignalStatus
 from app.proactive import email_signals, jobs, reminders
+from tests.support import FakeBot
 
 UTC = UTC
 
@@ -64,14 +65,6 @@ def _patch_gmail(monkeypatch, emails: dict, ids=None):
     monkeypatch.setattr(email_signals.google_gmail, "search_message_ids", _search)
     monkeypatch.setattr(email_signals.google_gmail, "get_message_body", _body)
     return reads
-
-
-class RecordingBot:
-    def __init__(self):
-        self.sent = []  # (text, reply_markup)
-
-    async def send_message(self, chat_id, text, reply_markup=None, **kw):
-        self.sent.append((text, reply_markup))
 
 
 # --- 1. HTML → text ---------------------------------------------------------
@@ -347,12 +340,12 @@ def test_send_pending_asks_sends_capped_and_flips_status(session, monkeypatch):
     monkeypatch.setattr(settings, "quiet_hours_start", 0)
     monkeypatch.setattr(settings, "quiet_hours_end", 0)  # start==end → never quiet
     _make_detected(session, 5)
-    bot = RecordingBot()
+    bot = FakeBot()
     import asyncio
     n = asyncio.run(jobs.send_pending_asks(bot, session, chat_id=1))
-    assert n == 2 and len(bot.sent) == 2
+    assert n == 2 and len(bot.messages) == 2
     # buttons carry sig:approve/reject
-    _, markup = bot.sent[0]
+    markup = bot.messages[0].reply_markup
     cbs = [b.callback_data for row in markup.inline_keyboard for b in row]
     assert any(c.startswith("sig:approve:") for c in cbs) and any(c.startswith("sig:reject:") for c in cbs)
     asked = session.exec(select(EmailSignal).where(EmailSignal.status == SignalStatus.ASKED.value)).all()
@@ -368,14 +361,14 @@ def test_quiet_hours_and_kill_switch_defer_asks(session, monkeypatch):
     monkeypatch.setattr(settings, "quiet_hours_start", 0)
     monkeypatch.setattr(settings, "quiet_hours_end", 23)
     now = datetime(2026, 7, 13, 5, tzinfo=UTC)  # 05:00 UTC — inside a 0–23 quiet window
-    assert asyncio.run(jobs.send_pending_asks(RecordingBot(), session, 1, now=now)) == 0
+    assert asyncio.run(jobs.send_pending_asks(FakeBot(), session, 1, now=now)) == 0
     assert len(session.exec(select(EmailSignal).where(EmailSignal.status == "detected")).all()) == 2
 
     # Kill-switch off → no asks either.
     monkeypatch.setattr(settings, "quiet_hours_start", 0)
     monkeypatch.setattr(settings, "quiet_hours_end", 0)
     jobs.set_enabled(False)
-    assert asyncio.run(jobs.send_pending_asks(RecordingBot(), session, 1)) == 0
+    assert asyncio.run(jobs.send_pending_asks(FakeBot(), session, 1)) == 0
 
 
 def test_reject_dismisses_without_a_reminder(session):
@@ -408,7 +401,7 @@ def test_end_to_end_multi_type(session, monkeypatch):
             return _sig(signal_type="return", title="Rain jacket from REI", due_date="2026-08-10")
         return _sig(signal_type="bill", title="PG&E electric", due_date="2026-07-25", amount=84.0, currency="USD")
 
-    bot = RecordingBot()
+    bot = FakeBot()
     n = asyncio.run(jobs.run_signal_ingest_tick(bot, session, chat_id=1, extractor=extractor, now=now))
     assert n == 2  # one ask per type
 

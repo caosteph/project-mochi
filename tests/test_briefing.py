@@ -13,13 +13,13 @@ from app.memory.models import (
     Goal,
     GoalStatus,
     Reminder,
-    ReminderStatus,
     SignalStatus,
     SignalType,
     Task,
     TaskStatus,
 )
 from app.proactive import briefing, jobs
+from tests.support import FakeBot, factories
 
 UTC = UTC
 TZ = get_localzone()
@@ -47,20 +47,8 @@ def _cal_service(events: list[tuple]) -> MagicMock:
     return svc
 
 
-class RecordingBot:
-    def __init__(self):
-        self.sent = []
-
-    async def send_message(self, chat_id, text, reply_markup=None, **kw):
-        self.sent.append(text)
-
-
 def _seed_reminder(s: Session, text_: str, due_at: datetime) -> Reminder:
-    r = Reminder(text=text_, due_at=due_at, status=ReminderStatus.PENDING.value)
-    s.add(r)
-    s.commit()
-    s.refresh(r)
-    return r
+    return factories.make_reminder(s, text_, due_at=due_at)
 
 
 def test_briefing_includes_calendar_reminders_and_goals(engine):
@@ -130,19 +118,19 @@ def test_run_daily_briefing_respects_pause_and_flag(engine, monkeypatch):
     with Session(engine) as s:
         # paused (kill-switch) → nothing sent
         jobs.set_enabled(False)
-        bot = RecordingBot()
+        bot = FakeBot()
         assert asyncio.run(jobs.run_daily_briefing(bot, s, 1, now=now, service=svc)) is False
-        assert bot.sent == []
+        assert bot.texts == []
 
         # enabled but briefing_enabled off → nothing sent
         jobs.set_enabled(True)
         monkeypatch.setattr("app.config.settings.briefing_enabled", False)
-        bot = RecordingBot()
+        bot = FakeBot()
         assert asyncio.run(jobs.run_daily_briefing(bot, s, 1, now=now, service=svc)) is False
-        assert bot.sent == []
+        assert bot.texts == []
 
         # enabled + flag on → exactly one message
         monkeypatch.setattr("app.config.settings.briefing_enabled", True)
-        bot = RecordingBot()
+        bot = FakeBot()
         assert asyncio.run(jobs.run_daily_briefing(bot, s, 1, now=now, service=svc)) is True
-        assert len(bot.sent) == 1 and "Morning, Stephanie" in bot.sent[0]
+        assert len(bot.texts) == 1 and "Morning, Stephanie" in bot.texts[0]

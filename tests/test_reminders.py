@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 from app.memory.db import init_db
 from app.memory.models import Purchase, Reminder, ReminderStatus
 from app.proactive import jobs, reminders
+from tests.support import FakeBot, factories
 
 UTC = UTC
 
@@ -103,20 +104,8 @@ def test_create_return_reminder_lead_dedup_and_none(engine):
 
 # --- the tick (recording mock bot) -----------------------------------------
 
-class RecordingBot:
-    def __init__(self):
-        self.sent = []
-
-    async def send_message(self, chat_id, text, reply_markup=None, **kw):
-        self.sent.append({"text": text, "buttons": reply_markup is not None})
-
-
 def _seed(s, text_, due_at, status=ReminderStatus.PENDING.value, recurrence=None):
-    r = Reminder(text=text_, due_at=due_at, status=status, recurrence=recurrence)
-    s.add(r)
-    s.commit()
-    s.refresh(r)
-    return r
+    return factories.make_reminder(s, text_, due_at=due_at, status=status, recurrence=recurrence)
 
 
 def test_tick_sends_due_dedups_and_reschedules_recurring(engine, monkeypatch):
@@ -129,10 +118,10 @@ def test_tick_sends_due_dedups_and_reschedules_recurring(engine, monkeypatch):
         _seed(s, "not yet", now + timedelta(hours=2))
         rec = _seed(s, "daily thing", now - timedelta(minutes=1), recurrence="daily")
 
-        bot = RecordingBot()
+        bot = FakeBot()
         n = asyncio.run(jobs.run_reminder_tick(bot, s, chat_id=1, now=now))
         assert n == 2  # the one-off + the recurring; NOT the future one
-        assert all(m["buttons"] for m in bot.sent)  # Done/Snooze buttons
+        assert all(m.buttons for m in bot.messages)  # Done/Snooze buttons
 
         s.refresh(due)
         s.refresh(rec)
@@ -141,7 +130,7 @@ def test_tick_sends_due_dedups_and_reschedules_recurring(engine, monkeypatch):
         assert rec.due_at > now                              # …advanced to next slot
 
         # Second tick right away sends nothing new (dedup / exactly-once).
-        bot2 = RecordingBot()
+        bot2 = FakeBot()
         assert asyncio.run(jobs.run_reminder_tick(bot2, s, chat_id=1, now=now)) == 0
 
 
@@ -150,13 +139,13 @@ def test_tick_respects_quiet_hours_and_pause(engine, monkeypatch):
     with Session(engine) as s:
         _seed(s, "due but quiet", now_quiet - timedelta(minutes=1))
         jobs.set_enabled(True)
-        assert asyncio.run(jobs.run_reminder_tick(RecordingBot(), s, 1, now=now_quiet)) == 0  # quiet
+        assert asyncio.run(jobs.run_reminder_tick(FakeBot(), s, 1, now=now_quiet)) == 0  # quiet
 
     now_ok = datetime.now().astimezone().replace(hour=12, minute=0).astimezone(UTC)
     with Session(engine) as s:
         _seed(s, "due, paused", now_ok - timedelta(minutes=1))
         jobs.set_enabled(False)  # kill-switch
-        assert asyncio.run(jobs.run_reminder_tick(RecordingBot(), s, 1, now=now_ok)) == 0
+        assert asyncio.run(jobs.run_reminder_tick(FakeBot(), s, 1, now=now_ok)) == 0
         jobs.set_enabled(True)
 
 

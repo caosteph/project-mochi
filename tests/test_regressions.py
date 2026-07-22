@@ -14,16 +14,9 @@ from tzlocal import get_localzone
 
 from app.memory.models import ReminderStatus
 from app.proactive import briefing, jobs, reminders
+from tests.support import FakeBot
 
 UTC = UTC
-
-
-class RecordingBot:
-    def __init__(self):
-        self.sent = []
-
-    async def send_message(self, chat_id, text, reply_markup=None, **kw):
-        self.sent.append(text)
 
 
 def test_reminder_lifecycle_create_fire_once_cancel_cleans_mirror(engine, monkeypatch):
@@ -47,13 +40,13 @@ def test_reminder_lifecycle_create_fire_once_cancel_cleans_mirror(engine, monkey
         assert r.calendar_event_id == "evt_1" and len(created) == 1  # mirrored on create
 
         later = now + timedelta(hours=2, minutes=1)
-        bot = RecordingBot()
+        bot = FakeBot()
         assert asyncio.run(jobs.run_reminder_tick(bot, s, chat_id=1, now=later)) == 1  # fires once
-        assert len(bot.sent) == 1 and "return jacket" in bot.sent[0]
+        assert len(bot.texts) == 1 and "return jacket" in bot.texts[0]
         s.refresh(r)
         assert r.status == ReminderStatus.SENT.value  # one-off consumed
 
-        assert asyncio.run(jobs.run_reminder_tick(RecordingBot(), s, 1, now=later)) == 0  # exactly-once
+        assert asyncio.run(jobs.run_reminder_tick(FakeBot(), s, 1, now=later)) == 0  # exactly-once
 
         cancelled = reminders.cancel_reminder(s, "jacket")
         assert cancelled.status == ReminderStatus.CANCELLED.value

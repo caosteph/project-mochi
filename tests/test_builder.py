@@ -6,14 +6,12 @@ timeout, and the build/doc flows.
 import asyncio
 import shutil
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from app.agent.tools import builder_tools
 from app.builder import codegen, docs, sandbox, workspace
-from app.channels import telegram
-from app.config import settings
+from tests.support import FakeMessage, make_update
 
 
 @pytest.fixture
@@ -143,46 +141,21 @@ class _FakeTool:
         return self.ret
 
 
-class _Bot:
-    def __init__(self):
-        self.messages = []
-        self.documents = []
-
-    async def send_message(self, chat_id, text, **k):
-        self.messages.append(text)
-
-    async def send_document(self, chat_id, document, filename=None, **k):
-        self.documents.append(filename)
-
-
-def _chan():
-    return telegram.TelegramChannel.__new__(telegram.TelegramChannel)
-
-
 def _update(text):
-    return SimpleNamespace(
-        effective_chat=SimpleNamespace(id=settings.telegram_chat_id),
-        message=SimpleNamespace(text=text, reply_text=None),
-    )
+    return make_update(message=FakeMessage(text))
 
 
-def test_on_build_command_replies_with_link(monkeypatch):
+def test_on_build_command_replies_with_link(channel, ctx, fake_bot, monkeypatch):
     monkeypatch.setattr(builder_tools, "build_web_app", _FakeTool("Done! live at http://192.168.1.9:8100"))
-    chan = _chan()
-    monkeypatch.setattr(chan, "_log_one", lambda *a: None)
-    bot = _Bot()
-    asyncio.run(chan._on_build(_update("/build a bakery landing page"), SimpleNamespace(bot=bot)))
-    assert any("http://192.168.1.9:8100" in m for m in bot.messages)
+    asyncio.run(channel._on_build(_update("/build a bakery landing page"), ctx))
+    assert any("http://192.168.1.9:8100" in m for m in fake_bot.texts)
 
 
-def test_on_doc_command_generates_locally_and_sends_file(monkeypatch):
+def test_on_doc_command_generates_locally_and_sends_file(channel, ctx, fake_bot, monkeypatch):
     # /doc generates content (mocked here) and sends a file.
     monkeypatch.setattr(builder_tools, "_write_document", lambda desc: "# Plan\n\n- do x\n- do y")
-    chan = _chan()
-    monkeypatch.setattr(chan, "_log_one", lambda *a: None)
-    bot = _Bot()
-    asyncio.run(chan._on_doc(_update("/doc a one-page plan for my week"), SimpleNamespace(bot=bot)))
-    assert len(bot.documents) == 1 and bot.documents[0].endswith(".pdf")
+    asyncio.run(channel._on_doc(_update("/doc a one-page plan for my week"), ctx))
+    assert len(fake_bot.documents) == 1 and fake_bot.documents[0][1].endswith(".pdf")
     # clean up the produced file
     for f in workspace.WORKSPACE_ROOT.glob("*.pdf"):
         f.unlink(missing_ok=True)

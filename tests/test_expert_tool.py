@@ -1,36 +1,19 @@
-"""Phase 4A — the consult_expert tool + the /ask path. All offline (the routed model is
-faked). Proves the safety gates: fail-closed when hosted is off, deterministic scrub +
-audit before anything is sent, refusal of too-personal questions, and that /ask builds a
-generic-only prompt with no memory.
+"""Phase 4A — the consult_expert tool + the /ask path. All offline (the routed model is faked).
+Proves the safety gates: fail-closed when hosted is off, deterministic scrub + audit before
+anything is sent, refusal of too-personal questions, and that /ask builds a generic-only prompt
+with no memory. Scaffolding is shared — see tests/support.
 """
 
 import asyncio
-from types import SimpleNamespace
 
-import pytest
 from langchain_core.messages import SystemMessage
 from sqlmodel import Session, select
 
 from app.agent import router
-from app.agent.tools import expert_tools
 from app.agent.tools.expert_tools import consult_expert
 from app.config import settings
 from app.memory.models import HostedConsult
-
-
-class FakeModel:
-    def __init__(self, answer="a generic answer"):
-        self.answer = answer
-        self.received = None
-
-    def invoke(self, messages):
-        self.received = messages
-        return SimpleNamespace(content=self.answer)
-
-
-@pytest.fixture(autouse=True)
-def _use_test_engine(engine, monkeypatch):
-    monkeypatch.setattr(expert_tools, "get_engine", lambda: engine)
+from tests.support import FakeMessage, FakeModel, make_update
 
 
 def _rows(engine):
@@ -85,37 +68,15 @@ def test_refuses_too_personal(engine, monkeypatch):
     assert calls["n"] == 0 and _rows(engine) == []  # never sent, never audited
 
 
-def test_ask_path_builds_generic_only_prompt(engine, monkeypatch):
-    from app.channels import telegram, telegram_commands
-
+def test_ask_path_builds_generic_only_prompt(channel, ctx, fake_bot, monkeypatch):
     monkeypatch.setattr(router, "hosted_available", lambda: False)  # local path, no audit
-    monkeypatch.setattr(telegram_commands, "get_engine", lambda: engine)
     fake = FakeModel("4")
     monkeypatch.setattr(router, "chat_model", lambda *a, **k: fake)
 
-    chan = telegram.TelegramChannel.__new__(telegram.TelegramChannel)  # skip build_agent()
-    chan._ask_threads = {}
-
-    async def _noop(*a, **k):
-        pass
-
-    sent = []
-
-    class Bot:
-        async def send_message(self, chat_id, text, **k):
-            sent.append(text)
-
-        async def send_chat_action(self, **k):
-            pass
-
-    update = SimpleNamespace(
-        effective_chat=SimpleNamespace(id=settings.telegram_chat_id),
-        message=SimpleNamespace(text="/ask what is 2+2", reply_to_message=None, reply_text=_noop),
-    )
-    asyncio.run(chan._on_ask(update, SimpleNamespace(bot=Bot())))
+    asyncio.run(channel._on_ask(make_update(message=FakeMessage("/ask what is 2+2")), ctx))
 
     # the model saw ONLY [system prompt, the question] — no recalled memory, no history
     assert len(fake.received) == 2
     assert isinstance(fake.received[0], SystemMessage)
     assert fake.received[1].content == "what is 2+2"
-    assert sent and "4" in sent[0]
+    assert fake_bot.texts and "4" in fake_bot.texts[0]

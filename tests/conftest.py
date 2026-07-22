@@ -84,3 +84,67 @@ def clean_tables(engine):
     yield
     with engine.begin() as conn:
         conn.execute(_TRUNCATE)
+
+
+# --- shared scaffolding (see tests/support/) --------------------------------
+# These replace the fake bot reimplemented 8×, the fake callback query 2×, the fake model 2×, the
+# TelegramChannel.__new__ bypass ~20×, and the scattered row-seeding helpers. Test files request
+# these fixtures instead of hand-rolling doubles, so the scaffolding lives in exactly one place.
+
+
+@pytest.fixture
+def fake_bot():
+    """A recording stand-in for the Telegram Bot (see tests.support.FakeBot)."""
+    from tests.support import FakeBot
+
+    return FakeBot()
+
+
+@pytest.fixture
+def ctx(fake_bot):
+    """The python-telegram-bot context handlers receive — just needs `.bot`."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(bot=fake_bot)
+
+
+@pytest.fixture
+def channel(monkeypatch):
+    """A TelegramChannel test double: built via __new__ (skips build_agent), authorized by default,
+    with an empty /ask thread store. Override `_authorized`/`agent`/`_log_one` per test as needed."""
+    from app.channels import telegram
+
+    ch = telegram.TelegramChannel.__new__(telegram.TelegramChannel)
+    ch._ask_threads = {}
+    monkeypatch.setattr(ch, "_authorized", lambda _update: True)
+    return ch
+
+
+@pytest.fixture
+def seed(engine):
+    """Row factories bound to the test engine: `seed.reminder("dentist", days=2)` returns the row.
+
+    Each call opens its own session on the shared test engine, so tests seed data without touching
+    a Session. Wraps tests.support.factories."""
+    from sqlmodel import Session
+
+    from tests.support import factories
+
+    class _Seed:
+        def reminder(self, text, **kw):
+            with Session(engine) as s:
+                return factories.make_reminder(s, text, **kw)
+
+        def signal(self, **kw):
+            with Session(engine) as s:
+                return factories.make_signal(s, **kw)
+
+        def fact(self, text, **kw):
+            with Session(engine) as s:
+                return factories.make_fact(s, text, **kw)
+
+        def task(self, text, **kw):
+            with Session(engine) as s:
+                return factories.make_task(s, text, **kw)
+
+    return _Seed()
