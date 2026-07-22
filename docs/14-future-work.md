@@ -223,25 +223,33 @@ columns are added by hand. Fine at this size, fragile as the schema grows — an
 and *Measure answer quality* will both grow it.
 **Medium, mostly one-time.**
 
-### 25. Checkpoint pruning
+### 25. Group the safety spine into `app/agent/safety/`
+`app/agent/` mixes the graph core (`graph`, `tool_select`, `router`, `persona`) with the four modules
+that *are the reason the project exists* — `confirm` (HITL approval), `quarantine` (dual-LLM untrusted
+reader), `sanitize` (PII scrub), `rate_limit`. Grouping them into `app/agent/safety/` makes the trust
+boundary legible as a set. Pure relocation (~20 import sites, mechanical, gated by tests) — deferred
+from the 2026-07-22 refactor because it fixes no defect; do it when touching that area anyway. Leave
+`router.py` in agent core (model-selection infra, widely imported). **Small (churn, not risk).**
+
+### 26. Checkpoint pruning
 `PostgresSaver` writes a row per turn and nothing prunes it, so it grows unbounded. A periodic
 retention job (keep last N per thread / last M days). **Small.**
 
-### 26. Docker sandbox for generated code
+### 27. Docker sandbox for generated code
 `SubprocessSandbox` is best-effort — scrubbed env, cwd jail, best-effort `sandbox-exec` — not real
 isolation, and the builder executes model-generated code. The `DockerSandbox` drop-in was always the
 plan (better on the mini). **Medium.**
 
-### 27. Secrets at rest
+### 28. Secrets at rest
 `.env` holds the bot token and hosted API key in plaintext. Keychain was always the plan. **Small-medium.**
 
-### 28. Doc bloat and drift
+### 29. Doc bloat and drift
 `docs/` is ~3,900 lines (`05-phase1-build.md` alone is 1,312). More importantly, this session found
 **three confidently-written conclusions that were wrong**, all downstream of one unmeasured config. Do
 a periodic "does this still match reality?" pass, and prefer linking measurements over restating them.
 **Small, recurring.**
 
-### 29. Mac mini + a larger local model (and the self-hosted gate runner)
+### 30. Mac mini + a larger local model (and the self-hosted gate runner)
 Still the best raw quality lever — reliability, memory headroom, and it's the only way to run the
 **full real-model gate in CI**: `verify_all.sh` can't run on GitHub (no Ollama, by design), so a
 self-hosted runner on the mini is the only path to gating model behavior automatically rather than by

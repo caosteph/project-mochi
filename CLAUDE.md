@@ -303,7 +303,8 @@ personal-agent/
                         #   _commands,_buttons}
     integrations/       # google_auth / google_calendar / google_gmail / web_search
     memory/             # models, db, store, embeddings, extract
-    proactive/          # reminders, jobs, email_signals, briefing, text_match
+    proactive/          # reminders (+ reminder_time pure parsing, reminder_calendar mirroring),
+                        #   jobs, email_signals, briefing, text_match
     builder/            # sandbox, codegen, docs, serve, workspace
   data/ workspace/      # local state / tokens / built artifacts (git-ignored)
   docs/ scripts/ tests/ launchd/ ollama/ .github/

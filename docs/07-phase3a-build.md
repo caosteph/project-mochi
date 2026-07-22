@@ -65,6 +65,12 @@ columns, runs `init_db()`, and asserts they're re-added.
 
 ## Step 3 — The engine (`app/proactive/reminders.py`) — pure, testable
 
+> **Later refactor (2026-07-22):** the 579-line engine was split by concern — pure time parsing
+> (`parse_when`, `next_occurrence`, `in_quiet_hours`) now lives in `app/proactive/reminder_time.py`
+> and Calendar mirroring (`mirror_reminder`, `delete_mirror`) in `app/proactive/reminder_calendar.py`.
+> `reminders.py` re-exports `ReminderParseError`. The function descriptions below still hold; only
+> their home files changed.
+
 All functions take an explicit `Session` (+ `now`) so the whole engine runs against a scratch DB
 with no phone, no model. Highlights:
 
