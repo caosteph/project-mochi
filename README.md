@@ -116,6 +116,11 @@ Built in phases; each has a build doc in [`docs/`](./docs).
 - **P8 — web search:** "what's the weather / is X open / current price of Y" → the local model looks
   it up online. Only a **PII-scrubbed** query leaves (you approve it first), results are synthesized
   locally, every query is logged to `/sent`. Pluggable provider (Tavily or keyless DuckDuckGo).
+- **Memory, made real:** organic capture is slow (only ~7% of messages carry a self-fact), so memory
+  was **seeded** from a profile exported by another agent that already knows her (`import_profile.py`,
+  90 facts / 9 goals, `provenance=imported`, deduped through the real recall). A curated subset of
+  **pinned** style rules is then injected into the system prompt **every turn** (the *always-on
+  profile card*), so Mochi follows her voice without having to call `recall` first.
 - **Reliability pass:** the local model runs at an 8k context — at Ollama's default 4,096 a turn's
   prompt (~4,000 tokens) left almost no room to generate, which silently degraded tool-calling;
   fixing it took several previously-dead prompts from 0/23 to 18/18. Plus **launchd supervision**
@@ -133,12 +138,12 @@ Built in phases; each has a build doc in [`docs/`](./docs).
 The full, self-contained list (problem → why → effort) is **[`docs/14-future-work.md`](./docs/14-future-work.md)**;
 the detailed phase plan is [`docs/00-plan.md`](./docs/00-plan.md). Highlights:
 
-- **⭐ Back up the memory database** — everything the project is *for* lives in one Postgres with no
-  backups. Highest risk-to-effort item on the list.
-- **Make long-term memory actually accumulate** — the premise is a durable memory; in practice it
-  captures far less than it should, which is the gap between "agent" and "chatbot with tools".
-- **Re-enable the email signal scanner** — the flagship proactive feature, currently off because
-  early scans were too noisy.
+- **Widen memory capture** — memory is now seeded and shaped into every reply (see Current status),
+  but *organic* capture is still coverage-limited (~7% of messages carry a self-fact); the lever is
+  mining her existing signal (reminders, calendar), not tuning the extractor.
+- **Flip the email signal scanner to live** — the flagship proactive feature currently runs in
+  **shadow mode** (scans real mail and logs detections, stores nothing, messages nothing) pending a
+  few days of precision review; going live is a one-line `.env` change.
 - **Try a newer same-size local model** — context, not model capability, turned out to be the
   bottleneck, so the model choice deserves a fair re-test. Free.
 - **Reliability/ops:** checkpoint pruning, Alembic migrations, a Docker sandbox.
@@ -173,7 +178,8 @@ Message your bot on Telegram — the reply is generated entirely on your own mac
 
 ```
 app/
-  agent/        LangGraph graph, persona, tools, router, quarantined reader, tool selection
+  agent/        LangGraph graph, persona, tools, router, quarantined reader, tool selection,
+                the always-on profile card (pinned memory injected every turn)
   channels/     Telegram adapter — core + streaming/commands/buttons mixins, rendering
                 (and a Channel interface + contract for future transports)
   integrations/ Google auth / Calendar / Gmail
@@ -195,7 +201,7 @@ CLAUDE.md       orientation + the non-negotiable safety rules — read this firs
 
 Two layers, because they catch different things:
 
-- **`tests/`** — a fast offline `pytest` suite (295 tests, ~25s) that mocks the model + Google.
+- **`tests/`** — a fast offline `pytest` suite (316 tests, ~30s) that mocks the model + Google.
   Proves the plumbing. It earns its keep: writing the channel-button tests is what surfaced a live
   bug where pressing "Snooze" saved the change but crashed before confirming it.
 - **`scripts/verify_*.py`** — real-model checks that drive the *actual* agent (`build_agent()`) and
@@ -206,7 +212,13 @@ Two layers, because they catch different things:
   `hits/attempts`, so scraping by never looks like a clean pass. `scripts/verify_all.sh` runs the
   whole regression sequentially.
 
+A **pre-push hook** (`.githooks/pre-push`, opt in with `./scripts/install_hooks.sh`) reproduces CI
+locally before every push: it runs `ruff` and the hermetic suite **with the embedding endpoint pointed
+at a dead host**, so a test that embeds without the `needs_ollama` marker — which passes locally but
+fails in CI, since CI has no Ollama — is caught here instead. Bypass with `git push --no-verify`.
+
 ```bash
+./scripts/install_hooks.sh   # one-time: enable the pre-push CI-parity gate
 uv run pytest tests/ -q
 uv run ruff check app/ tests/ scripts/
 ./scripts/verify_all.sh      # full real-model regression (needs Ollama + a scratch DB)

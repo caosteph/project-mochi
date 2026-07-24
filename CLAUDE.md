@@ -56,6 +56,14 @@ Explicit, always-on expectations for any AI session in this repo — read this e
   reached her. **Never assert an ORM attribute after its session closes** — `commit()` expires the
   instance, so the write lands and the confirmation crashes; `scripts/audit_session_scope.py` gates
   this and mocked-session unit tests structurally cannot.
+- **CI is hermetic — mark every Ollama-touching test.** GitHub runs `pytest -m "not needs_ollama"` with
+  **no Ollama**, so any test that embeds (directly or via `store.recall`/`remember_fact`/the `seed`
+  fixture/`import_profile`) must carry `pytestmark = pytest.mark.needs_ollama` (see
+  `tests/test_memory_recall.py`) or it passes locally and **silently fails CI** (this happened for four
+  commits). The **pre-push hook** (`.githooks/pre-push`, install via `scripts/install_hooks.sh`)
+  reproduces CI by running the hermetic suite against a dead `OLLAMA_BASE_URL` and blocks the push if an
+  unmarked test embeds. After a push, still confirm CI green with `gh run list` — Lint passing ≠ Tests
+  passing.
 - **Definition of done:** offline `pytest` + relevant `verify_*` green, no regressions, docs/CLAUDE.md
   updated — *then* it's done, not before.
 - **Problem-solve through obstacles.** When something blocks (e.g. the 7B tool-count wall), diagnose the

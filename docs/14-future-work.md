@@ -275,6 +275,21 @@ whether a free model swap gets there. **Hardware + a migration pass.**
 
 ## ✅ Resolved (kept — the lessons still apply)
 
+### CI parity: catch "green locally, red in CI" before the push (2026-07-24)
+The Tests job was red for **four straight commits** and no one noticed (Lint was green, and nothing
+pinged). Root cause: the seed/profile-card tests embed via Ollama but weren't marked `needs_ollama`, so
+CI — which is hermetic (no Ollama) and deselects that marker — tried to run them and hit `EmbeddingError`.
+They passed locally because Ollama was up. Fixed the tests (tag them), then closed the **class** of bug:
+a version-controlled **pre-push hook** (`.githooks/pre-push`, `scripts/install_hooks.sh` sets
+`core.hooksPath`) runs `ruff` + the hermetic suite against a **dead `OLLAMA_BASE_URL`**, reproducing CI's
+no-Ollama environment so an unmarked embedding test fails *before* the push. Bypass with `--no-verify`.
+**Design note:** considered a conftest monkeypatch to reword the failure, but `embed_local` is imported
+by-name across several modules, so patching is fragile and a new module would escape it; the dead-URL run
+blocks *every* embed path (the URL is read at call time) and the hook prints the "add the marker" hint.
+**Deliberately not done** (gold-plating for a solo project): Ollama-in-CI (slow/flaky; the local gate +
+`verify_*` cover model logic — see #29), a coverage floor (#15), and CI→Telegram alerts (would put a
+secret in CI; GitHub's default failure email + the hook are enough).
+
 ### Automated memory-DB backups (2026-07-23)
 The memory DB — reminders, facts, goals, message history — had **zero** backups on a machine that had
 just crashed. Shipped a daily rotated `pg_dump -Fc` (`scripts/backup_db.sh`, custom format,

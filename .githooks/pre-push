@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Pre-push gate: reproduce CI locally so a commit can't be pushed red.
+#
+# The trap this prevents: CI runs the hermetic suite (`pytest -m "not needs_ollama"`) with NO Ollama,
+# but locally that same command PASSES because Ollama is up — so a test that embeds without the
+# `needs_ollama` marker is green locally and red in CI (this actually happened, four commits running).
+# We reproduce CI's no-Ollama environment by pointing the embedding endpoint at a dead host: any
+# unmarked test that tries to embed fails here, before the push, instead of in CI.
+#
+# Fast (~15s), and bypassable in a pinch with `git push --no-verify`.
+# Installed via `scripts/install_hooks.sh` (sets core.hooksPath to .githooks).
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+echo "pre-push: ruff + CI-parity hermetic tests (no Ollama). Bypass with --no-verify."
+
+echo "  [1/2] ruff"
+uv run ruff check app/ tests/ scripts/
+
+echo "  [2/2] hermetic suite against a dead Ollama endpoint (CI parity)"
+# Dead URL => embed_local() raises, exactly as it would on CI with no Ollama. A hermetic (unmarked)
+# test must never embed, so this passes cleanly unless a test is missing its needs_ollama marker.
+if ! OLLAMA_BASE_URL="http://localhost:1/v1" uv run pytest tests/ -m "not needs_ollama" -q; then
+  echo
+  echo "pre-push FAILED. If the failure says 'Could not reach Ollama', a test embeds but is not"
+  echo "marked needs_ollama — it would fail in CI. Add \`@pytest.mark.needs_ollama\` (module-level"
+  echo "pytestmark, or per-test) to it. See tests/test_memory_recall.py for the pattern."
+  exit 1
+fi
+
+echo "pre-push OK."
