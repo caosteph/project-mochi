@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for Mochi's daily DB backup. Runs scripts/backup_db.sh once a day at 03:30 (a
+  rotated pg_dump of the Postgres memory DB). Separate from com.mochi.agent.plist so the bot and
+  the backup are supervised independently.
+
+  Install:
+    cp launchd/com.mochi.backup.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mochi.backup.plist
+  Run it once now (don't wait for 03:30) / status / logs:
+    launchctl kickstart gui/$(id -u)/com.mochi.backup
+    launchctl print gui/$(id -u)/com.mochi.backup | head -20
+    tail -f data/backup.log
+  Stop / uninstall:
+    launchctl bootout gui/$(id -u)/com.mochi.backup
+    rm ~/Library/LaunchAgents/com.mochi.backup.plist
+
+  Prove a backup is restorable any time:  ./scripts/restore_check.sh
+  NOTE: absolute paths — launchd runs with a minimal environment. Update them if the repo moves.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mochi.backup</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/stephaniecao/personal-agent/scripts/backup_db.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/stephaniecao/personal-agent</string>
+
+  <!-- Daily at 03:30. RunAtLoad is false: don't dump on every login/reboot, only on schedule.
+       If the Mac is asleep at 03:30, launchd runs it at the next wake. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/stephaniecao/personal-agent/data/backup.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/stephaniecao/personal-agent/data/backup.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+</dict>
+</plist>

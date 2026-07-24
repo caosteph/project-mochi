@@ -345,6 +345,23 @@ launchctl bootout gui/$(id -u)/com.mochi.agent        # stop/uninstall
 ```
 Don't run the manual command *and* the agent at once — two pollers on one bot token conflict.
 
+**Backups (the memory DB — everything the project is *for*).** A daily rotated `pg_dump -Fc` of
+Postgres, supervised by its own launchd job. **Local only** by decision: covers a bad migration /
+accidental delete / corruption / app bug (restorable in seconds into a scratch DB); disk failure is an
+accepted risk, left to the Mac's whole-disk/Time Machine backup. A backup you can't restore is a
+guess, so `restore_check.sh` restores the newest dump into a throwaway DB and asserts row-count parity
+with prod — **run it after setup**.
+```bash
+cp launchd/com.mochi.backup.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mochi.backup.plist  # daily 03:30
+launchctl kickstart gui/$(id -u)/com.mochi.backup     # run one now (don't wait for 03:30)
+./scripts/restore_check.sh                            # PROVE the newest dump restores (row-count parity)
+tail -f data/backup.log                               # logs; dumps land in backups/ (git-ignored, keep last 14)
+```
+*Note:* FileVault is currently **off** on this machine, so PGDATA, `.env`, and these dumps are
+plaintext at rest — enabling FileVault (System Settings) encrypts all three; independent of backups,
+her call.
+
 ## Conventions
 
 - Keep each phase lean: no speculative abstractions, no half-finished later-phase code.

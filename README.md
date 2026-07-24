@@ -184,7 +184,8 @@ app/
 docs/           the roadmap, primers, and a build guide per phase (single source of truth)
 scripts/        verify_*.py real-model checks + preflight/run wrappers (_verify_lib.py is shared)
 tests/          offline pytest suite (mocks the model + Google)
-launchd/        the agent plist — starts at login, restarts on exit
+launchd/        the agent plist (starts at login, restarts on exit) + a daily DB-backup plist
+backups/        local rotated pg_dumps of the memory DB (git-ignored; prove-restore via restore_check.sh)
 ollama/         Modelfile for the 8k-context model variant
 .github/        CI: ruff + the hermetic test suite on every push
 CLAUDE.md       orientation + the non-negotiable safety rules — read this first
@@ -194,7 +195,7 @@ CLAUDE.md       orientation + the non-negotiable safety rules — read this firs
 
 Two layers, because they catch different things:
 
-- **`tests/`** — a fast offline `pytest` suite (232 tests, ~16s) that mocks the model + Google.
+- **`tests/`** — a fast offline `pytest` suite (295 tests, ~25s) that mocks the model + Google.
   Proves the plumbing. It earns its keep: writing the channel-button tests is what surfaced a live
   bug where pressing "Snooze" saved the change but crashed before confirming it.
 - **`scripts/verify_*.py`** — real-model checks that drive the *actual* agent (`build_agent()`) and

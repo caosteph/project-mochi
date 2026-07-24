@@ -19,3 +19,8 @@ htmlcov/
 
 # OS
 .DS_Store
+
+# DB backups (local rotated pg_dumps) + backup log
+backups/*
+!backups/.gitkeep
+data/backup.log
