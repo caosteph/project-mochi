@@ -92,6 +92,10 @@ class Fact(SQLModel, table=True):
     embedding: list[float] = Field(sa_column=Column(Vector(768)))
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)
     provenance: str = Field(default=Provenance.USER_STATED.value, sa_column=Column(String, index=True))
+    # Pinned facts form the always-on "profile card" injected into every system prompt (not just
+    # surfaced when the model calls recall). Reserved for stable behavioral rules + core identity;
+    # kept small on purpose (the prompt budget is tight). See app/agent/profile.py.
+    pinned: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
 
 

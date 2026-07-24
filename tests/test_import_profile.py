@@ -147,3 +147,52 @@ def test_confidence_clamped_and_defaulted():
     assert import_profile._clamp_confidence(-0.5) == 0.0
     assert import_profile._clamp_confidence(None) == 0.8   # missing → default
     assert import_profile._clamp_confidence("junk") == 0.8
+
+
+# --- 7. pinning: which facts join the always-on profile card -----------------
+
+def _pinned(engine) -> set[str]:
+    with Session(engine) as s:
+        return {f.text for f in s.exec(select(Fact).where(Fact.pinned))}
+
+
+def test_import_pins_behavioral_categories_only(tmp_path, monkeypatch, engine):
+    profile = json.dumps({"facts": [
+        {"text": "Stephanie never wants em dashes.", "category": "dislikes"},
+        {"text": "Stephanie wants concise replies that lead with the answer.", "category": "communication"},
+        {"text": "Stephanie lives in New York City.", "category": "identity"},
+    ]})
+    _run(tmp_path, monkeypatch, profile, commit=True)
+    pinned = _pinned(engine)
+    assert "Stephanie never wants em dashes." in pinned
+    assert "Stephanie wants concise replies that lead with the answer." in pinned
+    assert "Stephanie lives in New York City." not in pinned  # identity is not always-on
+
+
+def test_import_excludes_action_directing_facts_from_the_card(tmp_path, monkeypatch, engine):
+    """A communication fact that tells the model to ask instead of act must NOT pin — pinning the
+    real one collapsed create_draft firing (measured). It's stored, just not in every prompt."""
+    profile = json.dumps({"facts": [
+        {"text": "Stephanie wants assistants to ask follow-up questions when writing something in her voice.",
+         "category": "communication"},
+    ]})
+    _run(tmp_path, monkeypatch, profile, commit=True)
+    facts = _facts(engine)
+    assert len(facts) == 1 and facts[0].pinned is False  # stored but excluded from the card
+
+
+def test_reimport_unpins_a_now_excluded_fact(tmp_path, monkeypatch, engine, seed):
+    """Pin sync is authoritative: a fact pinned earlier gets UNpinned when it later matches an
+    exclusion, so re-running the importer corrects the card without hand-editing the DB."""
+    seed.fact("Stephanie requires explicit confirmation before sending email.",
+              provenance=Provenance.IMPORTED.value)  # pre-existing, currently pinned=False by default
+    with Session(engine) as s:
+        f = s.exec(select(Fact)).one()
+        f.pinned = True  # pretend an older import pinned it
+        s.add(f)
+        s.commit()
+    profile = json.dumps({"facts": [
+        {"text": "Stephanie requires explicit confirmation before sending email.", "category": "communication"},
+    ]})
+    _run(tmp_path, monkeypatch, profile, commit=True)
+    assert _pinned(engine) == set()  # the excluded fact was unpinned on re-run

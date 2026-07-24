@@ -28,7 +28,7 @@ from app.config import settings
 from app.memory import store
 from app.memory.db import get_engine
 from app.memory.embeddings import embed_local
-from app.memory.models import Goal, GoalStatus, Provenance
+from app.memory.models import Fact, Goal, GoalStatus, Provenance
 
 DEFAULT_INPUT = "data/profile_import.json"
 
@@ -97,12 +97,33 @@ def _norm_goals(profile: dict) -> list[dict]:
     return out
 
 
-def _dup_of(session: Session, text: str) -> str | None:
-    """The text of an existing near-duplicate fact (>= the same dedup bar the post-turn sweep uses),
-    or None. Reuses the real hybrid recall so imports and organic capture stay consistent."""
+# Categories whose facts are the always-on "profile card" (behavioral rules Mochi must follow every
+# reply, not just when it recalls them). Deliberately narrow — see docs and app/agent/profile.py.
+PINNED_CATEGORIES = {"communication", "dislikes"}
+
+# ...minus facts that don't belong always-on. Measured (verify_firing, N=12): pinning the "ask
+# follow-up questions when writing in her voice" rule collapsed create_draft firing 7/12 -> 1/12 — an
+# always-on "ask, don't assume" instruction fights the drafting tools. So exclude facts that direct an
+# ALTERNATIVE action (ask instead of act), duplicate a code-enforced hard rule (the send gate is the
+# interrupt(), not a prompt), or aren't behavioral at all (a food dislike). They stay in memory and
+# surface via recall; they just aren't in every prompt. Matched by a distinctive substring.
+PIN_EXCLUDE = (
+    "ask follow-up questions when writing",   # directs "ask, don't draft" — suppressed create_draft
+    "requires explicit confirmation",         # the send gate is enforced in code (interrupt), not here
+    "does not like protein drinks",           # a food preference, not a behavioral rule
+)
+
+
+def _should_pin(category: str, text: str) -> bool:
+    return category in PINNED_CATEGORIES and not any(x in text for x in PIN_EXCLUDE)
+
+
+def _dup_of(session: Session, text: str) -> Fact | None:
+    """The existing near-duplicate Fact (>= the same dedup bar the post-turn sweep uses), or None.
+    Reuses the real hybrid recall so imports and organic capture stay consistent."""
     hits = store.recall(session, query=text, k=1)
     if hits and hits[0].similarity >= settings.fact_dedup_similarity:
-        return hits[0].fact.text
+        return hits[0].fact
     return None
 
 
@@ -162,24 +183,35 @@ def main() -> int:
     print(f"=== import_profile [{mode}] ===")
     print(f"parsed: {len(facts)} fact(s), {len(goals)} goal(s) from {args.input!r}\n")
 
-    stored = deduped = 0
+    stored = deduped = repinned = 0
     by_cat_store: dict[str, int] = {}
     engine = get_engine()
     with Session(engine) as session:
         print("facts:")
         for fct in facts:
+            pin = _should_pin(fct["category"], fct["text"])
             dup = _dup_of(session, fct["text"])
             if dup is not None:
                 deduped += 1
-                print(f"  =  [dup] {fct['text']!r}  (~ already know: {dup!r})")
+                # Sync the pin on a dedup so re-running is authoritative and order-independent: pin a
+                # fact that should be pinned, and UNPIN one that shouldn't (e.g. after PIN_EXCLUDE grew).
+                note = ""
+                if pin != dup.pinned and commit:
+                    dup.pinned = pin
+                    session.add(dup)
+                    session.commit()
+                    repinned += 1
+                    note = "  [+pinned]" if pin else "  [-unpinned]"
+                print(f"  =  [dup] {fct['text']!r}  (~ already know: {dup.text!r}){note}")
                 continue
             by_cat_store[fct["category"]] = by_cat_store.get(fct["category"], 0) + 1
             stored += 1
             marker = "+ " if commit else "+ [would] "
-            print(f"  {marker}({fct['category']}, conf={fct['confidence']}) {fct['text']!r}")
+            pin_tag = " [pin]" if pin else ""
+            print(f"  {marker}({fct['category']}{pin_tag}, conf={fct['confidence']}) {fct['text']!r}")
             if commit:
                 store.remember_fact(session, text=fct["text"], confidence=fct["confidence"],
-                                    provenance=Provenance.IMPORTED.value)
+                                    provenance=Provenance.IMPORTED.value, pinned=pin)
 
         goal_stored = goal_dup = 0
         if goals:
@@ -197,10 +229,13 @@ def main() -> int:
                     store.add_goal(session, text=g["text"], target_date=g["target_date"])
 
     verb = "stored" if commit else "would store"
+    pinnable = sum(1 for f in facts if _should_pin(f["category"], f["text"]))
     print("\n=== summary ===")
     print(f"facts: {stored} {verb}, {deduped} deduped (of {len(facts)})")
     if by_cat_store:
         print("  by category: " + ", ".join(f"{c}={n}" for c, n in sorted(by_cat_store.items())))
+    print(f"  pinned (always-on profile card): {pinnable} from {sorted(PINNED_CATEGORIES)}"
+          + (f", {repinned} pin change(s) on existing rows" if repinned else ""))
     if goals:
         print(f"goals: {goal_stored} {verb}, {goal_dup} deduped (of {len(goals)})")
     if not commit:

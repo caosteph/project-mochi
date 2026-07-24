@@ -69,6 +69,26 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 
 ## Current status
 
+**Memory, made real: seeded + an always-on profile card.** Prod memory was 3 facts from 68 user
+messages. Diagnosis (replaying her real history through the live extractor): the extractor is precise
+but only ~7% of messages carry an explicit self-fact, so organic capture is inherently slow. Fixed by
+seeding from an agent that already knows her: `docs/profile-extraction-prompt.md` (a copy-paste prompt
+that exports a JSON profile) + `scripts/import_profile.py` (stores each fact `provenance="imported"`,
+deduped via the real `store.recall` at `fact_dedup_similarity`; goals dedup semantically at 0.90, not
+word-overlap; dry-run by default, `--commit` writes; all local, input in git-ignored `data/`). Imported
+90 facts + 9 goals. Then, because facts only reached the model when it chose to call `recall`, added an
+**always-on profile card**: a curated subset of pinned facts (`Fact.pinned`, `store.pinned_facts`,
+`app/agent/profile.py`) injected into the stable system prefix every turn (lazily built + process-cached
+so Ollama's prefix KV-cache survives). The importer pins categories `{communication, dislikes}` minus a
+`PIN_EXCLUDE` set. That exclusion was **measured, not guessed**: pinning "ask follow-up questions when
+writing in her voice" collapsed `create_draft` firing 7/12 to 1/12 (an always-on "ask, don't assume"
+fights the drafting tools), so action-directing / code-enforced / non-behavioral facts are excluded and
+stay in recall. Final card is 14 pure-style rules (~630 tokens). Gated: `verify_scenarios` 16/16 (no
+JSON-dump), core tools (add_reminder/web_search/build_web_app) unregressed, `create_draft` improved on
+concrete prompts. Known soft-tier limit: create_draft is less reliable on very vague draft phrasings
+("just say hello") with the card, a graceful prose miss (not a JSON dump). Also enabled **FileVault**
+(2026-07-23) since the seed includes meds/comp/financials. See `docs/14-future-work.md` #1.
+
 **Email signal scanner — re-enabled in SHADOW mode (the flagship, cautiously).** The proactive
 return/bill/appointment scanner (Phase 3B) was off since it was too noisy. Re-enabling is now safe
 because retire-task lets the detector skip topics she's marked done. Replaced the on/off

@@ -8,6 +8,7 @@ The sensitivity router and human-in-the-loop confirmation gate still arrive in
 later phases.
 """
 
+import logging
 from datetime import datetime
 
 from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage, ToolMessage
@@ -16,16 +17,40 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from psycopg import Connection
 
-from app.agent import router, tool_select
+from app.agent import profile, router, tool_select
 from app.agent.persona import build_system_prompt
 from app.agent.router import Sensitivity
 from app.agent.tools import ALL_TOOLS
 from app.config import settings
 from app.memory.db import init_db
 
+log = logging.getLogger(__name__)
+
 # Mochi's voice + soft operating principles, sourced from the versioned persona.md.
 # Assembled once at import; the hard safety rules live in code, not this string.
 SYSTEM_PROMPT = build_system_prompt()
+
+# The always-on profile card (Stephanie's pinned facts) is read from the DB ONCE, lazily, and cached
+# for the process — so `core` is byte-identical every turn and Ollama's prefix KV-cache survives (a
+# per-turn DB read would bust it). It refreshes on restart, which is when new pins land anyway. Read
+# lazily (not at import) so importing this module never requires the DB to be up.
+_profile_card_cache: str | None = None
+
+
+def _profile_card() -> str:
+    global _profile_card_cache
+    if _profile_card_cache is None:
+        from sqlmodel import Session
+
+        from app.memory import store
+        from app.memory.db import get_engine
+        try:
+            with Session(get_engine()) as session:
+                _profile_card_cache = profile.render_card(store.pinned_facts(session))
+        except Exception:  # a memory read must never take down a turn — degrade to no card
+            log.exception("profile card build failed; proceeding without it")
+            _profile_card_cache = ""
+    return _profile_card_cache
 
 
 class AgentState(MessagesState):
@@ -75,7 +100,7 @@ def _agent_node(state: AgentState) -> dict:
     the history, so it can't bust that cached prefix every minute (which it did
     when it lived in the leading system prompt).
     """
-    core = SYSTEM_PROMPT
+    core = SYSTEM_PROMPT + _profile_card()
     if state.get("summary"):
         core += f"\n\n---\nSummary of earlier conversation:\n{state['summary']}"
     now = datetime.now().astimezone()

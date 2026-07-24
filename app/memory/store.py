@@ -26,12 +26,25 @@ class RecallHit:
     similarity: float
 
 
-def remember_fact(session: Session, *, text: str, confidence: float, provenance: str) -> Fact:
-    fact = Fact(text=text, embedding=embed_local(text), confidence=confidence, provenance=provenance)
+def remember_fact(
+    session: Session, *, text: str, confidence: float, provenance: str, pinned: bool = False
+) -> Fact:
+    fact = Fact(text=text, embedding=embed_local(text), confidence=confidence,
+                provenance=provenance, pinned=pinned)
     session.add(fact)
     session.commit()
     session.refresh(fact)
     return fact
+
+
+def pinned_facts(session: Session, *, limit: int | None = None) -> list[Fact]:
+    """The always-on profile facts, highest-confidence first — the source of the profile card
+    injected into every system prompt (app/agent/profile.py). Bounded so the card can't grow
+    unwatched past the prompt budget."""
+    limit = settings.profile_card_max_facts if limit is None else limit
+    return list(session.exec(
+        select(Fact).where(Fact.pinned).order_by(Fact.confidence.desc(), Fact.created_at).limit(limit)
+    ))
 
 
 def add_goal(session: Session, *, text: str, target_date: datetime | None = None) -> Goal:

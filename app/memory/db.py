@@ -76,4 +76,8 @@ def init_db(engine: Engine | None = None) -> None:
             "sent_at TIMESTAMP WITH TIME ZONE",
         ):
             conn.execute(text(f"ALTER TABLE reminder ADD COLUMN IF NOT EXISTS {col_def}"))
+        # `fact.pinned` (always-on profile card): the fact table predates this column and
+        # create_all() won't alter it, so add it idempotently or the first pinned read/write fails.
+        conn.execute(text("ALTER TABLE fact ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fact_pinned ON fact (pinned)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminder_kind ON reminder (kind)"))

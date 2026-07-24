@@ -28,6 +28,17 @@ export a structured profile, and `scripts/import_profile.py` that stores it as `
 goals → `Goal`). Dry-run by default, `--commit` to write; all local; input lives in git-ignored
 `data/`. Imported facts are reachable by the existing `recall` tool exactly like organic ones.
 
+**(0.5) Always-on profile card — shipped (2026-07-24).** Seeded facts only reached the model when it
+chose to call `recall`, so on a normal reply Mochi still ignored her stated rules. Fixed: a curated set
+of pinned facts (`Fact.pinned`, `store.pinned_facts`, `app/agent/profile.py`) is injected into the
+stable system prefix every turn (lazily built + process-cached so the prefix KV-cache survives). The
+importer pins `{communication, dislikes}` minus a measured `PIN_EXCLUDE` (pinning "ask follow-ups when
+writing in her voice" collapsed `create_draft` 7/12→1/12, so action-directing / code-enforced /
+non-behavioral facts stay in recall only). 14 style rules, ~630 tokens; `verify_scenarios` 16/16, core
+tools unregressed. **Open follow-ups:** a `/pin` `/unpin` command so she can curate the card without a
+re-import; and revisit the vague-`create_draft` sensitivity (maybe a header line that explicitly
+preserves tool use).
+
 **(a) Fix capture.** Instrument the post-turn extraction sweep (`app/memory/extract.py`) to report
 candidates found vs stored vs deduped (the diagnostic above can be folded into a script), then fix the
 weak link — but note the finding is *coverage, not precision*: the bigger lever is mining her existing
@@ -35,14 +46,14 @@ signal (34 reminders, calendar, assistant turns), not tuning the per-message ext
 so what she's remembered is visible (and to review/undo the seed import).
 
 **(b) Then add structure** (the old Phase 5): lightweight typed records (person / preference / routine
-/ project) with confidence and recency — the import already carries a `category` per fact (used only
-for the report today; the natural column when this lands), surfaced as a compact **always-on profile
-block** in the system prompt rather than only query-time recall hits, and fed into the briefing and
-replies. Mind the prompt budget — the persona already uses ~3,600 of the 8k window.
+/ project) with confidence and recency — the import already carries a `category` per fact (used for
+pinning + the report today; the natural column when this lands), and the always-on card (0.5) is the
+first consumer, next fed into the briefing and replies. Mind the prompt budget — the persona already
+uses ~3,600 of the 8k window and the card adds ~630.
 
 Without captured memory this is a capable chatbot with tools, not a personal agent; with it, it's
 *hers*. It compounds: briefing, replies, and proactivity all improve when memory is real.
-**Medium, diagnosis-led** (seed shipped; capture + structure remain).
+**Medium, diagnosis-led** (seed + always-on card shipped; capture + structure remain).
 
 ### 2. Liveness heartbeat + `/status`
 launchd's `KeepAlive` restarts a process that *exits*, but not one that's wedged (hung poll, dead DB

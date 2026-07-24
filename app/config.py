@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     fact_sweep_enabled: bool = True
     fact_dedup_similarity: float = 0.88  # skip storing a fact this similar to an existing one
 
+    # Always-on profile card — the top-N pinned facts injected into every system prompt (not just
+    # surfaced when the model calls recall). Kept small: the persona already uses ~3,600 of the 8k
+    # window, and net-additive prompt content regresses tool-firing. See app/agent/profile.py.
+    profile_card_max_facts: int = 24
+
     # Google (Phase 2). Paths only — OAuth scopes are a constant in
     # app/integrations/google_auth.py (least-privilege, not env-tunable). Both
     # files live under git-ignored data/ and never leave the machine.
