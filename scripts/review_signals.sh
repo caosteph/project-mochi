@@ -30,5 +30,15 @@ printf '%s\n' "$lines" | sed -n 's/.*type=\([a-z]*\).*/  \1/p' | sort | uniq -c 
 echo
 echo "detections (newest last):"
 printf '%s\n' "$lines" | sed -E 's/.*(SHADOW-SIGNAL.*)/  \1/'
+
+# Also show what the filters DROPPED (already on her calendar) — proof the noise-reduction works.
+skips="$(grep "SHADOW-SKIP" "$LOG" 2>/dev/null || true)"
+if [ -n "$DAYS" ] && [ -n "$skips" ]; then
+    skips="$(printf '%s\n' "$skips" | awk -v c="$cutoff" '$1 >= c')"
+fi
+skipn="$(printf '%s\n' "$skips" | grep -c "SHADOW-SKIP" || true)"
 echo
-echo "→ judge precision: are these real, dated correctly, not spammy? When quiet, set SIGNAL_MODE=live in .env and restart."
+echo "skipped (already on your calendar — the event IS the reminder): $skipn"
+[ "$skipn" -gt 0 ] && printf '%s\n' "$skips" | sed -E 's/.*(reason=[^ ]* .*title=.*)/  \1/'
+echo
+echo "→ judge precision: are the SURFACED ones real, dated correctly, not spammy? When quiet, set SIGNAL_MODE=live in .env and restart."

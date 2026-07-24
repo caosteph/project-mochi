@@ -530,3 +530,69 @@ def test_off_mode_does_not_scan_at_all(session, monkeypatch):
     monkeypatch.setattr(email_signals, "ingest_signals", lambda *a, **k: called.__setitem__("n", called["n"] + 1) or [])
     n = asyncio.run(jobs.run_signal_ingest_tick(bot=FakeBot(), session=session, chat_id=1, now=datetime.now(UTC)))
     assert n == 0 and called["n"] == 0  # off short-circuits before any scan
+
+
+# --- calendar-aware skip: a booking already on her calendar needs no reminder ---
+
+def _cal(monkeypatch, events):
+    """Point the scanner's calendar lookup at canned events (or make it raise if `events` is an
+    Exception)."""
+    from app.integrations import google_calendar
+
+    def fake_list_events(start=None, end=None, max_results=10, *, service=None):
+        if isinstance(events, Exception):
+            raise events
+        return events
+
+    monkeypatch.setattr(google_calendar, "list_events", fake_list_events)
+
+
+def test_skips_a_signal_already_on_her_calendar(session, monkeypatch):
+    """Her rule: the calendar event IS the reminder. A detected signal that matches an existing
+    calendar event is dropped (not stored, not asked), marked on_calendar."""
+    _init(session)
+    _patch_gmail(monkeypatch, {"m1": _email(subject="yoga")})
+    _cal(monkeypatch, [{"summary": "C2 - CorePower Yoga 2 - NYC class", "start": "2026-08-01T18:00:00Z"}])
+    created = email_signals.ingest_signals(
+        session, extractor=lambda e: _sig(signal_type="appointment", title="CorePower Yoga 2 class", due_date="2026-08-01"),
+        now=datetime.now(UTC),
+    )
+    assert created == []
+    assert session.exec(select(EmailSignal)).all() == []
+    from app.memory.models import ProcessedEmail
+    assert session.exec(select(ProcessedEmail).where(ProcessedEmail.message_id == "m1")).one().outcome == "on_calendar"
+
+
+def test_surfaces_a_signal_not_on_her_calendar(session, monkeypatch):
+    _init(session)
+    _patch_gmail(monkeypatch, {"m1": _email(subject="return")})
+    _cal(monkeypatch, [{"summary": "Dentist", "start": "2026-08-01T09:00:00Z"}])  # unrelated event
+    created = email_signals.ingest_signals(
+        session, extractor=lambda e: _sig(signal_type="return", title="Rain jacket from REI", due_date="2026-08-01"),
+        now=datetime.now(UTC),
+    )
+    assert len(created) == 1 and created[0].title == "Rain jacket from REI"
+
+
+def test_calendar_check_fails_open_on_error(session, monkeypatch):
+    """A calendar API blip must not swallow a real signal — fail open (surface it)."""
+    _init(session)
+    _patch_gmail(monkeypatch, {"m1": _email(subject="return")})
+    _cal(monkeypatch, RuntimeError("calendar down"))
+    created = email_signals.ingest_signals(
+        session, extractor=lambda e: _sig(signal_type="return", title="Rain jacket from REI", due_date="2026-08-01"),
+        now=datetime.now(UTC),
+    )
+    assert len(created) == 1  # surfaced despite the calendar error
+
+
+def test_skip_calendared_flag_off_disables_the_check(session, monkeypatch):
+    monkeypatch.setattr(settings, "signal_skip_calendared", False)
+    _init(session)
+    _patch_gmail(monkeypatch, {"m1": _email(subject="yoga")})
+    _cal(monkeypatch, [{"summary": "CorePower Yoga 2 class", "start": "2026-08-01T18:00:00Z"}])
+    created = email_signals.ingest_signals(
+        session, extractor=lambda e: _sig(signal_type="appointment", title="CorePower Yoga 2 class", due_date="2026-08-01"),
+        now=datetime.now(UTC),
+    )
+    assert len(created) == 1  # flag off → not skipped even though it's on the calendar

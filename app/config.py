@@ -134,6 +134,7 @@ class Settings(BaseSettings):
     signal_max_per_scan: int = 3                # cap on bodies fetched + reader calls per scan (cost bound)
     signal_default_return_days: int = 30        # fallback return window when a `return` states no date
     signal_require_due_date: bool = True        # only surface signals with a concrete date (drops vague/FYI noise)
+    signal_skip_calendared: bool = True         # skip a signal already on her calendar — the event IS the reminder
 
     # On-demand email reading (Phase 7) — "what did the X email say?" searches the inbox,
     # summarizes the newest match behind the SAME quarantined reader (body never reaches

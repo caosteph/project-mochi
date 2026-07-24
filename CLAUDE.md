@@ -76,8 +76,10 @@ because retire-task lets the detector skip topics she's marked done. Replaced th
 opt-in via `SIGNAL_MODE` in `.env`; public default off). **shadow** = scan real mail every ~6h and
 **log** each detection (`SHADOW-SIGNAL …` → `scripts/review_signals.sh`) but store nothing and never
 message her — deliberately log-only so a shadow detection can't suppress a later real ask via the
-14-day dedup, and going live has no backlog. **live** = the existing approve/reject ask. `jobs`
-branches on the mode; `ingest_signals(shadow=…)` is the seam. Her instance is running shadow now; the
+14-day dedup, and going live has no backlog. **live** = the existing approve/reject ask. The scanner also **skips any signal already on her
+calendar** (`signal_skip_calendared`, `_already_on_calendar` + `text_match`) — the calendar event
+already reminds her, and a Mochi reminder would mirror back a duplicate. `jobs` branches on the
+mode; `ingest_signals(shadow=…)` is the seam. Her instance is running shadow now; the
 live flip is a one-line `.env` change after a few days of precision review. See `docs/14-future-work.md` #3.
 
 **Let a task be retired — the staleness root-fix.** Her transcript's loudest pain was Mochi nagging

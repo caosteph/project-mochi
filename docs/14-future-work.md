@@ -47,7 +47,8 @@ trust impact.
 ### 3. Re-enable the email signal scanner (the flagship) — IN SHADOW as of 2026-07-23
 The headline feature — spot a purchase, remind her before the return window closes. A 3-state
 `signal_mode` (off / shadow / live) shipped, and her instance is now running **shadow** (`SIGNAL_MODE`
-in `.env`): it scans real mail every ~6h and **logs** what it would surface without messaging her.
+in `.env`): it scans real mail every ~6h and **logs** what it would surface without messaging her, and it now
+**skips anything already on her calendar** (the event is the reminder).
 **Remaining work is operational, not code:** run `./scripts/review_signals.sh` over a few days to
 hand-check precision (real? dated right? noisy?), tune filters if needed, then flip `SIGNAL_MODE=live`
 + restart to turn on the approve/reject ask — safe now that *Let a task be retired* (shipped) stops

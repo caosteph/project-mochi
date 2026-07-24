@@ -141,6 +141,26 @@ def _is_duplicate_signal(session: Session, title: str, now: datetime, days: int 
     return any(text_match.same_thing(title, s.title) for s in recent)
 
 
+def _already_on_calendar(title: str, due: datetime, *, service=None) -> bool:
+    """True if a matching event is already on her calendar around `due` — because then a reminder
+    is redundant: the calendar event IS the reminder (and a Mochi reminder would even mirror back a
+    duplicate event). Matches a ±1-day window by fuzzy title (`text_match.same_thing`).
+
+    Fail-OPEN: any calendar error → False (surface the signal). A calendar hiccup must never silently
+    swallow a real return-window/bill reminder. `google_calendar` is imported lazily to keep this
+    module's import network-free."""
+    from app.integrations import google_calendar
+
+    try:
+        start = (due - timedelta(days=1)).isoformat()
+        end = (due + timedelta(days=1)).isoformat()
+        events = google_calendar.list_events(start, end, max_results=25, service=service)
+    except Exception:
+        log.warning("calendar check failed for %r; surfacing the signal (fail-open)", title, exc_info=True)
+        return False
+    return any(text_match.same_thing(title, e.get("summary") or "") for e in events)
+
+
 def ingest_signals(session: Session, *, service=None, extractor=None, now: datetime | None = None,
                    shadow: bool = False) -> list[EmailSignal]:
     """Scan recent mail and record any new actionable signals. Returns the newly
@@ -194,6 +214,14 @@ def ingest_signals(session: Session, *, service=None, extractor=None, now: datet
             # re-enabling the scanner depends on task-retirement existing.
             if reminders.is_retired(session, sig.title):
                 _mark_processed(session, mid, "retired")
+                continue
+            # Already on her calendar? Then the event IS the reminder — surfacing one is redundant
+            # (and would mirror back a duplicate event). Her rule; only for dated signals.
+            if settings.signal_skip_calendared and due and _already_on_calendar(sig.title, due):
+                if shadow:
+                    log.info("SHADOW-SKIP reason=on_calendar src=gmail:%s title=%r", mid, sig.title.strip())
+                _mark_processed(session, mid, "on_calendar")
+                session.commit()
                 continue
             if shadow:
                 # Observe only: log what we WOULD surface, mark processed so it isn't re-scanned,
