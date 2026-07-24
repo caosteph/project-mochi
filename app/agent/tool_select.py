@@ -5,7 +5,8 @@ HISTORY / CORRECTION (2026-07-20). This was built for a measured "tool-count wal
 fire, 13–15 → ~0). That wall turned out to be **context exhaustion, not a model limit**: each
 bound tool costs ~95 prompt tokens, and the model was running at Ollama's default num_ctx 4096
 where the base prompt was already ~3,600 — so ~11 tools is exactly where the prompt crossed the
-window. With the 8k-context model, **all 17 tools bind and fire 3/3** (prompt ~4,998 tokens).
+window. With the 8k-context model, **all of them bind and fire 3/3** (measured at 17 tools, ~4,998
+prompt tokens; the tool set has grown since and still fits with headroom to spare).
 
 So this module is no longer load-bearing for correctness — but it's kept because it saves ~665
 prompt tokens/turn vs binding everything (faster prefill, more generation headroom), and the
