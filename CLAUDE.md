@@ -371,9 +371,10 @@ launchctl kickstart gui/$(id -u)/com.mochi.backup     # run one now (don't wait 
 ./scripts/restore_check.sh                            # PROVE the newest dump restores (row-count parity)
 tail -f data/backup.log                               # logs; dumps land in backups/ (git-ignored, keep last 14)
 ```
-*Note:* FileVault is currently **off** on this machine, so PGDATA, `.env`, and these dumps are
-plaintext at rest — enabling FileVault (System Settings) encrypts all three; independent of backups,
-her call.
+*Note:* FileVault is **on** as of 2026-07-23, so PGDATA, `.env`, and these dumps are encrypted at
+rest (recovery key stored in her password manager). This was enabled after seeding memory with a
+sensitive personal profile (meds, comp, financial accounts); it protects the whole disk, independent
+of backups.
 
 ## Conventions
 
