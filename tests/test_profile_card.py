@@ -3,11 +3,17 @@
 Real embeddings, scratch DB — remember_fact embeds locally, so it can't be mocked away.
 """
 
+import pytest
 from sqlmodel import Session
 
 from app.agent import profile
 from app.memory import store
 from app.memory.models import Provenance
+
+# remember_fact embeds locally, so the pin-selection tests need a running Ollama and are marked
+# needs_ollama (CI deselects via `-m "not needs_ollama"`; they run in the local gate). The
+# render_card([]) test is pure and stays unmarked, so the "empty card on a fresh DB / CI leaves the
+# system prompt untouched" guarantee still runs in CI.
 
 
 def _pin(session, text, *, confidence=0.9):
@@ -16,6 +22,7 @@ def _pin(session, text, *, confidence=0.9):
     )
 
 
+@pytest.mark.needs_ollama
 def test_pinned_facts_filters_orders_and_caps(engine):
     with Session(engine) as s:
         store.remember_fact(s, text="an unpinned fact", confidence=1.0,
@@ -33,6 +40,7 @@ def test_pinned_facts_filters_orders_and_caps(engine):
         assert len(every) == 3
 
 
+@pytest.mark.needs_ollama
 def test_render_card_leads_with_a_directive_and_lists_facts(engine):
     with Session(engine) as s:
         _pin(s, "Stephanie never wants em dashes.")

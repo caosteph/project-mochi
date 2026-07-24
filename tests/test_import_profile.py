@@ -13,6 +13,14 @@ from sqlmodel import Session, select
 from app.memory.models import Fact, Goal, GoalStatus, Provenance
 from scripts import import_profile
 
+# Almost every test drives the real importer, which embeds locally (recall-based fact dedup +
+# semantic goal dedup) — that can't be mocked away without gutting what's under test. So the module
+# needs a running Ollama; CI (no Ollama) deselects it via `-m "not needs_ollama"` and it runs in the
+# local gate (mirrors tests/test_memory_recall.py). The module-level mark also sweeps in the one pure
+# unit test (test_confidence_clamped_and_defaulted); it still runs in the local gate, and a per-test
+# mark on the other ten just to keep that one in CI isn't worth the noise.
+pytestmark = pytest.mark.needs_ollama
+
 
 def _run(tmp_path, monkeypatch, profile_text: str, *, commit: bool):
     """Write `profile_text` to a temp file and run the importer over it. Returns the exit code."""
