@@ -14,23 +14,35 @@ Detailed phase plan: [`00-plan.md`](./00-plan.md). Shipped status: [`CLAUDE.md`]
 
 ---
 
-### 1. Make memory real (capture first, then structure)
-The premise is "holds long-term memory about her life" — the production DB has **1 fact from 89
-messages**. Two stages, deliberately one item: there is no point structuring memory that isn't being
-captured, and splitting them invites building (b) first.
+### 1. Make memory real (seed, then capture, then structure)
+The premise is "holds long-term memory about her life" — the production DB has **3 facts from 68 user
+messages**. **Diagnosis (2026-07-23, replaying her real history through the live extractor):** the
+extractor is *precise* but its surface is tiny — only **5/68 messages (7%) contain an explicit
+self-fact**, because people ask an assistant to *do things*, not narrate their biography. Organic
+capture will always be slow, so this is three stages, deliberately one item.
+
+**(0) Seed — shipped (2026-07-23).** The fastest path from "reminder bot with amnesia" to "hers": a
+copy-paste prompt (`docs/profile-extraction-prompt.md`) that has another agent that already knows her
+export a structured profile, and `scripts/import_profile.py` that stores it as `Fact` rows
+(`provenance="imported"`, deduped via the real `store.recall` at `fact_dedup_similarity`; optional
+goals → `Goal`). Dry-run by default, `--commit` to write; all local; input lives in git-ignored
+`data/`. Imported facts are reachable by the existing `recall` tool exactly like organic ones.
 
 **(a) Fix capture.** Instrument the post-turn extraction sweep (`app/memory/extract.py`) to report
-candidates found vs stored vs deduped, replay recent `MessageLog` history through it offline to get a
-real capture rate, then fix the weak link (likely making the sweep primary and the flaky
-`remember_fact` tool a bonus). Add `/facts` so what she's remembered is visible.
+candidates found vs stored vs deduped (the diagnostic above can be folded into a script), then fix the
+weak link — but note the finding is *coverage, not precision*: the bigger lever is mining her existing
+signal (34 reminders, calendar, assistant turns), not tuning the per-message extractor. Add `/facts`
+so what she's remembered is visible (and to review/undo the seed import).
 
 **(b) Then add structure** (the old Phase 5): lightweight typed records (person / preference / routine
-/ project) with confidence and recency, surfaced as a compact profile block in the system prompt
-rather than raw recall hits, and fed into the briefing and replies. Mind the prompt budget — the
-persona already uses ~3,600 of the 8k window.
+/ project) with confidence and recency — the import already carries a `category` per fact (used only
+for the report today; the natural column when this lands), surfaced as a compact **always-on profile
+block** in the system prompt rather than only query-time recall hits, and fed into the briefing and
+replies. Mind the prompt budget — the persona already uses ~3,600 of the 8k window.
 
-Without (a) this is a capable chatbot with tools, not a personal agent; with both it's *hers*. It
-compounds: briefing, replies, and proactivity all improve when memory is real. **Medium, diagnosis-led.**
+Without captured memory this is a capable chatbot with tools, not a personal agent; with it, it's
+*hers*. It compounds: briefing, replies, and proactivity all improve when memory is real.
+**Medium, diagnosis-led** (seed shipped; capture + structure remain).
 
 ### 2. Liveness heartbeat + `/status`
 launchd's `KeepAlive` restarts a process that *exits*, but not one that's wedged (hung poll, dead DB
