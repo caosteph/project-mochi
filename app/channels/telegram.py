@@ -66,6 +66,9 @@ COMMANDS: tuple[tuple[str, str], ...] = (
     ("build", "_on_build"),
     ("doc", "_on_doc"),
     ("briefing", "_on_briefing"),
+    ("facts", "_on_facts"),
+    ("pin", "_on_pin"),
+    ("unpin", "_on_unpin"),
 )
 
 

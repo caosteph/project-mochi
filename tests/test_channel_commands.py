@@ -152,7 +152,8 @@ def test_unauthorized_chat_gets_nothing_from_any_command(channel, ctx, fake_bot,
     asserts none of them forgot."""
     monkeypatch.setattr(channel, "_authorized", lambda _u: False)
     for handler in (channel._on_start, channel._on_ask, channel._on_sent, channel._on_build,
-                    channel._on_doc, channel._on_pause, channel._on_resume, channel._on_briefing):
+                    channel._on_doc, channel._on_pause, channel._on_resume, channel._on_briefing,
+                    channel._on_facts, channel._on_pin, channel._on_unpin):
         update = _cmd("/whatever")
         asyncio.run(handler(update, ctx))
         assert update.message.replies == [], f"{handler.__name__} replied to an unauthorized chat"

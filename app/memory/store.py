@@ -47,6 +47,31 @@ def pinned_facts(session: Session, *, limit: int | None = None) -> list[Fact]:
     ))
 
 
+def list_facts(session: Session, *, limit: int) -> list[Fact]:
+    """Facts for the `/facts` view: pinned first (they're the always-on card), then most-recent.
+    Bounded by `limit`. Callers must read the returned rows' attributes before the session closes."""
+    return list(session.exec(
+        select(Fact).order_by(Fact.pinned.desc(), Fact.created_at.desc()).limit(limit)
+    ))
+
+
+def count_facts(session: Session) -> int:
+    return len(list(session.exec(select(Fact.id))))
+
+
+def set_pinned(session: Session, *, fact_id: int, pinned: bool) -> Fact | None:
+    """Pin/unpin one fact by id (the `/pin` `/unpin` commands). Returns the updated row, or None if
+    no fact has that id. The caller must invalidate the profile-card cache after a real change."""
+    fact = session.get(Fact, fact_id)
+    if fact is None:
+        return None
+    fact.pinned = pinned
+    session.add(fact)
+    session.commit()
+    session.refresh(fact)
+    return fact
+
+
 def add_goal(session: Session, *, text: str, target_date: datetime | None = None) -> Goal:
     goal = Goal(text=text, target_date=target_date)
     session.add(goal)

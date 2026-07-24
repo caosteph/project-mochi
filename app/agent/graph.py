@@ -53,6 +53,14 @@ def _profile_card() -> str:
     return _profile_card_cache
 
 
+def invalidate_profile_card() -> None:
+    """Drop the cached card so the next turn rebuilds it from the DB. Call after pins change (the
+    `/pin` `/unpin` commands run in this same process), so a curated change takes effect without a
+    restart. Rebuilding does re-cost one prefix warm-up, which is fine for a deliberate, rare edit."""
+    global _profile_card_cache
+    _profile_card_cache = None
+
+
 class AgentState(MessagesState):
     """Adds a rolling conversation summary to the base message-list state.
     This is the "core block" beyond persona: no separate current-task tracker

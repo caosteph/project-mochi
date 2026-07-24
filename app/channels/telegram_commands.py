@@ -21,11 +21,15 @@ from telegram.ext import ContextTypes
 
 from app.agent import router, sanitize
 from app.agent.router import Sensitivity
+from app.memory import store
 from app.memory.db import get_engine
 from app.memory.models import HostedConsult, WebSearch
 from app.proactive import briefing, jobs
 
 log = logging.getLogger(__name__)
+
+_FACTS_LIMIT = 40  # how many facts /facts shows (pinned first); keeps the message phone-readable
+_FACT_SNIP = 90    # truncate each fact's text in the /facts list
 
 # Lightweight system prompt for the /ask generic path — no persona tool/safety block,
 # no memory, no history. Kept separate from the graph so /ask never touches sensitive data.
@@ -35,7 +39,7 @@ _ASK_THREAD_CAP = 50  # how many /ask answers stay swipe-replyable (bounds in-me
 
 
 class CommandsMixin:
-    """The nine slash commands. Mixed into `TelegramChannel`; see `ChannelContract`."""
+    """The slash commands. Mixed into `TelegramChannel`; see `ChannelContract`."""
 
     def _remember_ask(self, message, history: list) -> None:
         """Record a hosted answer's message_id → its conversation history, so replying to it
@@ -234,6 +238,71 @@ class CommandsMixin:
             return
         jobs.set_enabled(True)
         await update.message.reply_text("🔔 Proactive reminders back on.")
+
+    async def _on_facts(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """`/facts` — show what Mochi knows about you, pinned facts (the always-on profile card)
+        first and marked, each with an id you can pass to /pin or /unpin. Read-only."""
+        if not self._authorized(update):
+            return
+
+        def build() -> str:
+            with Session(get_engine()) as session:
+                facts = store.list_facts(session, limit=_FACTS_LIMIT)
+                total = store.count_facts(session)
+                if not facts:
+                    return "I haven't stored any facts about you yet."
+                lines = []
+                for f in facts:
+                    text = f.text if len(f.text) <= _FACT_SNIP else f.text[:_FACT_SNIP - 1] + "…"
+                    lines.append(f"{'*' if f.pinned else ' '} {f.id}. {text}")
+                header = f"Memory — {len(facts)} of {total} facts (* = always-on, in every reply):"
+                footer = "Change what's always-on: /pin <number> or /unpin <number>."
+                return "\n".join([header, "", *lines, "", footer])
+
+        try:
+            text = await asyncio.to_thread(build)
+        except Exception as exc:
+            await self._report_error(update.effective_chat.id, ctx, exc)
+            return
+        await update.message.reply_text(text)
+
+    async def _on_pin(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        await self._set_pin(update, ctx, pinned=True)
+
+    async def _on_unpin(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        await self._set_pin(update, ctx, pinned=False)
+
+    async def _set_pin(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE, *, pinned: bool) -> None:
+        """Shared body of /pin and /unpin: pin/unpin the fact with the given id, then invalidate the
+        profile-card cache so the change lands on the very next reply (no restart)."""
+        if not self._authorized(update):
+            return
+        verb = "pin" if pinned else "unpin"
+        arg = (update.message.text or "").partition(" ")[2].strip()
+        if not arg.isdigit():
+            await update.message.reply_text(f"Usage: /{verb} <number> — the number shown by /facts.")
+            return
+        fact_id = int(arg)
+
+        def run() -> str | None:
+            with Session(get_engine()) as session:
+                fact = store.set_pinned(session, fact_id=fact_id, pinned=pinned)
+                return None if fact is None else fact.text
+
+        try:
+            text = await asyncio.to_thread(run)
+        except Exception as exc:
+            await self._report_error(update.effective_chat.id, ctx, exc)
+            return
+        if text is None:
+            await update.message.reply_text(f"No fact #{fact_id}. Run /facts to see the current list.")
+            return
+        from app.agent import graph
+
+        graph.invalidate_profile_card()
+        snip = text if len(text) <= _FACT_SNIP else text[:_FACT_SNIP - 1] + "…"
+        done = "Pinned — it'll be in every reply now" if pinned else "Unpinned — no longer always-on"
+        await update.message.reply_text(f"{done}: {snip}")
 
     async def _on_briefing(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """`/briefing` — the morning digest on demand (today's calendar + reminders due
