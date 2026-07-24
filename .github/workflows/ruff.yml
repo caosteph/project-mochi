@@ -18,3 +18,6 @@ jobs:
       # Pinned to the version used locally so CI can't drift and flag new lints.
       - name: Ruff check
         run: uvx ruff@0.15.21 check app/ tests/ scripts/
+      # Doc-lint is pure stdlib (no deps), so it runs on the runner's python directly.
+      - name: Doc-lint (referenced paths + links resolve)
+        run: python3 scripts/check_docs.py
