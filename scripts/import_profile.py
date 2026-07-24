@@ -27,8 +27,8 @@ from tzlocal import get_localzone
 from app.config import settings
 from app.memory import store
 from app.memory.db import get_engine
+from app.memory.embeddings import embed_local
 from app.memory.models import Goal, GoalStatus, Provenance
-from app.proactive import text_match
 
 DEFAULT_INPUT = "data/profile_import.json"
 
@@ -106,9 +106,31 @@ def _dup_of(session: Session, text: str) -> str | None:
     return None
 
 
-def _goal_exists(session: Session, text: str) -> bool:
+# Goals dedup on *semantic* near-identity, not word overlap: text_match.same_thing is tuned for short
+# reminder errands and wrongly merges distinct goals that share topic words ("Book Greece
+# accommodations" vs "Get in shape for Greece" both contain "Greece trip"). This bar is deliberately
+# high — it should catch only a genuine re-run of the same goal, never two different objectives.
+GOAL_DEDUP_SIM = 0.90
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(y * y for y in b) ** 0.5
+    return dot / (na * nb) if na and nb else 0.0
+
+
+def _goal_exists(session: Session, text: str, _cache: dict[str, list[float]]) -> bool:
+    """True if an active goal is a semantic near-duplicate (>= GOAL_DEDUP_SIM). Embeds locally and
+    compares by cosine; `_cache` memoizes existing-goal embeddings across the batch."""
+    cand = embed_local(text)
     existing = session.exec(select(Goal).where(Goal.status == GoalStatus.ACTIVE.value)).all()
-    return any(text_match.same_thing(text, g.text) for g in existing)
+    for g in existing:
+        if g.text not in _cache:
+            _cache[g.text] = embed_local(g.text)
+        if _cosine(cand, _cache[g.text]) >= GOAL_DEDUP_SIM:
+            return True
+    return False
 
 
 def main() -> int:
@@ -162,8 +184,9 @@ def main() -> int:
         goal_stored = goal_dup = 0
         if goals:
             print("\ngoals:")
+            goal_emb_cache: dict[str, list[float]] = {}
             for g in goals:
-                if _goal_exists(session, g["text"]):
+                if _goal_exists(session, g["text"], goal_emb_cache):
                     goal_dup += 1
                     print(f"  =  [dup] {g['text']!r}")
                     continue

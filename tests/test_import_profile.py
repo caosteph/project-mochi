@@ -85,6 +85,31 @@ def test_goals_are_stored(tmp_path, monkeypatch, engine):
     assert goals[0].target_date is not None and goals[0].target_date.year == 2026
 
 
+# --- 3b. goal dedup is semantic + high-bar: distinct goals survive, re-runs don't -----
+
+def test_goal_dedup_keeps_distinct_related_goals(tmp_path, monkeypatch, engine):
+    """Regression: same_thing word-overlap wrongly merged "Book Greece accommodations" into "Get in
+    shape for Greece" because both say "Greece". Semantic dedup at a high bar keeps them distinct."""
+    profile = json.dumps({"goals": [
+        {"text": "Get in shape for Greece trip (flatter stomach, consistent movement)"},
+        {"text": "Book and finalize Greece trip accommodations in Athens and Corfu with Ben"},
+        {"text": "Build a consistent fitness routine through group classes"},
+    ]})
+    _run(tmp_path, monkeypatch, profile, commit=True)
+    with Session(engine) as s:
+        texts = {g.text for g in s.exec(select(Goal))}
+    assert len(texts) == 3  # all three distinct objectives survived
+
+
+def test_goal_dedup_skips_a_true_rerun(tmp_path, monkeypatch, engine):
+    """Re-importing the same file is idempotent for goals (an exact goal is not duplicated)."""
+    profile = json.dumps({"goals": [{"text": "Explore applying to Stanford GSB"}]})
+    _run(tmp_path, monkeypatch, profile, commit=True)
+    _run(tmp_path, monkeypatch, profile, commit=True)  # second run
+    with Session(engine) as s:
+        assert len(list(s.exec(select(Goal)))) == 1  # not duplicated
+
+
 # --- 4. dry run (the default) writes nothing ---------------------------------
 
 def test_dry_run_stores_nothing(tmp_path, monkeypatch, engine):
