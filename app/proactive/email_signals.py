@@ -141,10 +141,16 @@ def _is_duplicate_signal(session: Session, title: str, now: datetime, days: int 
     return any(text_match.same_thing(title, s.title) for s in recent)
 
 
-def ingest_signals(session: Session, *, service=None, extractor=None, now: datetime | None = None) -> list[EmailSignal]:
+def ingest_signals(session: Session, *, service=None, extractor=None, now: datetime | None = None,
+                   shadow: bool = False) -> list[EmailSignal]:
     """Scan recent mail and record any new actionable signals. Returns the newly
     created EmailSignals (status='detected'). On the first-ever run, baseline-skips
-    the existing inbox (go-forward-only) and returns []."""
+    the existing inbox (go-forward-only) and returns [].
+
+    `shadow=True` is the observe-without-touching-her mode: a detection is LOGGED and the message
+    marked processed, but **no EmailSignal row is stored and nothing is asked** — so a shadow
+    detection can't later suppress a real ask via dedup, and flipping to live has no backlog. Used
+    to hand-check precision for a few days before any ask reaches her. Returns [] in shadow."""
     now = now or datetime.now(UTC)
     extractor = extractor or quarantine.extract_signal
 
@@ -188,6 +194,16 @@ def ingest_signals(session: Session, *, service=None, extractor=None, now: datet
             # re-enabling the scanner depends on task-retirement existing.
             if reminders.is_retired(session, sig.title):
                 _mark_processed(session, mid, "retired")
+                continue
+            if shadow:
+                # Observe only: log what we WOULD surface, mark processed so it isn't re-scanned,
+                # store nothing and ask nothing. This is the precision-review record.
+                log.info(
+                    "SHADOW-SIGNAL type=%s due=%s src=gmail:%s title=%r",
+                    sig.signal_type, (due.date().isoformat() if due else "none"), mid, sig.title.strip(),
+                )
+                _mark_processed(session, mid, "shadow")
+                session.commit()
                 continue
             row = EmailSignal(
                 source=f"gmail:{mid}",

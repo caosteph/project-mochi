@@ -134,26 +134,32 @@ async def run_signal_ingest_tick(
     tests, pass a mock bot + a mock Gmail `service` + a fake `extractor` for a fully
     offline run. Returns the number of asks sent."""
     now = now or datetime.now(UTC)
-    if not _enabled or not settings.signal_scanning_enabled:
+    if not _enabled or settings.signal_mode == "off":
         return 0
-    email_signals.ingest_signals(session, service=service, extractor=extractor, now=now)
+    shadow = settings.signal_mode == "shadow"
+    email_signals.ingest_signals(session, service=service, extractor=extractor, now=now, shadow=shadow)
+    if shadow:
+        return 0  # shadow observes only — never asks her
     return await send_pending_asks(bot, session, chat_id, now=now)
 
 
-def _ingest_blocking() -> None:
+def _ingest_blocking(shadow: bool) -> None:
     with Session(get_engine()) as session:
-        email_signals.ingest_signals(session)
+        email_signals.ingest_signals(session, shadow=shadow)
 
 
 async def signal_ingest_job(context) -> None:
     """PTB JobQueue callback (~6h). The heavy part — reading email bodies and running
     the quarantined reader — is offloaded to a worker thread so it never blocks the
-    bot loop; the approval asks are then sent from the loop. Top-level try/except so a
-    failure never stops the scheduler."""
+    bot loop; the approval asks are then sent from the loop (live mode only). Top-level
+    try/except so a failure never stops the scheduler."""
     try:
-        if not _enabled or not settings.signal_scanning_enabled:
+        if not _enabled or settings.signal_mode == "off":
             return
-        await asyncio.to_thread(_ingest_blocking)
+        shadow = settings.signal_mode == "shadow"
+        await asyncio.to_thread(_ingest_blocking, shadow)
+        if shadow:
+            return  # shadow scans + logs, but never asks her
         with Session(get_engine()) as session:
             await send_pending_asks(context.bot, session, settings.telegram_chat_id)
     except Exception:

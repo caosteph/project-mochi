@@ -109,7 +109,7 @@ reject → dismiss). The job is registered in `run()` beside the reminder tick.
 
 ## Step 6 — Config (`app/config.py`)
 
-`signal_scanning_enabled` (kill-switch for reading bodies at all), `signal_scan_interval_seconds`
+`signal_mode` ("off" / "shadow" = scan+log only / "live" = ask), `signal_scan_interval_seconds`
 (~6h), `signal_scan_window_days` (3), `signal_max_per_scan` (5), `signal_default_return_days` (30).
 
 ## Step 7 — Verify (no phone)

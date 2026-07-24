@@ -5,6 +5,8 @@ Values load from environment variables, falling back to a local `.env` file
 reads `TELEGRAM_BOT_TOKEN`.
 """
 
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -122,7 +124,11 @@ class Settings(BaseSettings):
 
     # Email signal ingestion (Phase 3B) — the quarantined reader scans recent mail,
     # extracts a typed actionable signal, and proactively asks before creating a reminder.
-    signal_scanning_enabled: bool = False       # OFF by default — the email scanner was too noisy; re-enable once proven quiet
+    # Lifecycle: "off" (no scan) → "shadow" (scan + LOG detections, never asks her — for a
+    # precision hand-check over a few days) → "live" (store + send the approve/reject ask).
+    # Public default OFF; opt an instance in via SIGNAL_MODE in .env. Re-enabling is safe now
+    # that retire-task lets the detector skip topics she's marked done.
+    signal_mode: Literal["off", "shadow", "live"] = "off"
     signal_scan_interval_seconds: int = 21600   # ~6h between scans
     signal_scan_window_days: int = 3            # Gmail `newer_than` window per scan (overlap safety)
     signal_max_per_scan: int = 3                # cap on bodies fetched + reader calls per scan (cost bound)

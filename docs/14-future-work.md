@@ -44,17 +44,14 @@ silence looks identical to "nothing to say." **Small.**
 "Mochi has nothing to say" and "Mochi is down" look identical from her phone. Small effort, direct
 trust impact.
 
-### 3. Re-enable the email signal scanner (the flagship)
-The headline feature — spot a purchase, remind her before the return window closes — is switched
-**off** because early scans were noisy. It now has dedup, a require-due-date filter, per-scan caps,
-go-forward-only baselining, an approval ask, and the context fix that improved extraction. Turn it on
-in shadow mode first (log detections without pushing), hand-check precision for a few days, tighten,
-then enable the proactive ask with `/pause` as the kill switch. It's the differentiator that motivated
-the project, currently dormant, and the only feature that creates value with zero effort from her.
-**Its dependency (*Let a task be retired*) is now shipped** — the detector skips retired topics, so
-turning proactivity back on no longer risks nagging about things she's marked done. This is now the
-top *capability* item. Turn it on in shadow mode first, hand-check precision, then enable the ask.
-**Medium — mostly tuning and judgement, not new code.**
+### 3. Re-enable the email signal scanner (the flagship) — IN SHADOW as of 2026-07-23
+The headline feature — spot a purchase, remind her before the return window closes. A 3-state
+`signal_mode` (off / shadow / live) shipped, and her instance is now running **shadow** (`SIGNAL_MODE`
+in `.env`): it scans real mail every ~6h and **logs** what it would surface without messaging her.
+**Remaining work is operational, not code:** run `./scripts/review_signals.sh` over a few days to
+hand-check precision (real? dated right? noisy?), tune filters if needed, then flip `SIGNAL_MODE=live`
++ restart to turn on the approve/reject ask — safe now that *Let a task be retired* (shipped) stops
+the re-nagging. `/pause` is the master kill-switch. **Small — judgement + one config flip.**
 
 ### 4. Un-retire, and make retirement visible
 `retire_task` (just shipped) is a one-way door with no visibility: it matches fuzzily

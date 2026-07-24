@@ -387,7 +387,7 @@ def test_reject_dismisses_without_a_reminder(session):
 def test_end_to_end_multi_type(session, monkeypatch):
     import asyncio
     _init(session)
-    monkeypatch.setattr(settings, "signal_scanning_enabled", True)  # scanner is off by default now
+    monkeypatch.setattr(settings, "signal_mode", "live")  # off by default; this end-to-end asserts the live ask path
     monkeypatch.setattr(settings, "quiet_hours_start", 0)
     monkeypatch.setattr(settings, "quiet_hours_end", 0)
     now = datetime(2026, 7, 13, tzinfo=UTC)
@@ -471,3 +471,62 @@ def test_retired_topic_is_never_offered_as_a_signal(session, monkeypatch):
 
     processed = session.exec(select(ProcessedEmail).where(ProcessedEmail.message_id == "m1")).one()
     assert processed.outcome == "retired"
+
+
+# --- shadow mode: observe without touching her -----------------------------
+
+def test_shadow_mode_scans_and_logs_but_stores_nothing_and_never_asks(session, monkeypatch, caplog):
+    """Shadow = the safe re-enable path: detect + LOG, but store no EmailSignal and send no ask, so
+    precision can be hand-checked for a few days before anything reaches her."""
+    import asyncio
+    import logging
+
+    monkeypatch.setattr(settings, "signal_mode", "shadow")
+    monkeypatch.setattr(settings, "quiet_hours_start", 0)
+    monkeypatch.setattr(settings, "quiet_hours_end", 0)
+    _init(session)
+    _patch_gmail(monkeypatch, {"m1": _email(subject="jacket")})
+
+    bot = FakeBot()
+    with caplog.at_level(logging.INFO, logger="app.proactive.email_signals"):
+        n = asyncio.run(jobs.run_signal_ingest_tick(
+            bot, session, chat_id=1,
+            extractor=lambda e: _sig(title="Rain jacket from REI", due_date="2026-08-01"),
+            now=datetime.now(UTC),
+        ))
+
+    assert n == 0                                            # never asks
+    assert bot.messages == []                                # nothing sent to her
+    assert session.exec(select(EmailSignal)).all() == []     # nothing stored (no dedup/backlog trap)
+    assert any("SHADOW-SIGNAL" in r.message and "Rain jacket" in r.message for r in caplog.records)
+
+
+def test_shadow_mode_marks_processed_so_a_second_scan_re_detects_nothing(session, monkeypatch):
+    """A shadow detection marks the message processed, so it isn't re-surfaced every 6h — and when
+    the operator later flips to live, that message won't retroactively become an ask."""
+    import asyncio
+
+    monkeypatch.setattr(settings, "signal_mode", "shadow")
+    _init(session)
+    _patch_gmail(monkeypatch, {"m1": _email(subject="jacket")})
+
+    def extractor(e):
+        return _sig(title="Rain jacket from REI", due_date="2026-08-01")
+
+    asyncio.run(jobs.run_signal_ingest_tick(bot=FakeBot(), session=session, chat_id=1, extractor=extractor, now=datetime.now(UTC)))
+    from app.memory.models import ProcessedEmail
+    assert session.exec(select(ProcessedEmail).where(ProcessedEmail.message_id == "m1")).one().outcome == "shadow"
+
+    # second scan: same message id → already processed → no work, still no rows, still no asks
+    n = asyncio.run(jobs.run_signal_ingest_tick(bot=FakeBot(), session=session, chat_id=1, extractor=extractor, now=datetime.now(UTC)))
+    assert n == 0 and session.exec(select(EmailSignal)).all() == []
+
+
+def test_off_mode_does_not_scan_at_all(session, monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(settings, "signal_mode", "off")
+    called = {"n": 0}
+    monkeypatch.setattr(email_signals, "ingest_signals", lambda *a, **k: called.__setitem__("n", called["n"] + 1) or [])
+    n = asyncio.run(jobs.run_signal_ingest_tick(bot=FakeBot(), session=session, chat_id=1, now=datetime.now(UTC)))
+    assert n == 0 and called["n"] == 0  # off short-circuits before any scan

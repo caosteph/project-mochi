@@ -69,6 +69,17 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 
 ## Current status
 
+**Email signal scanner — re-enabled in SHADOW mode (the flagship, cautiously).** The proactive
+return/bill/appointment scanner (Phase 3B) was off since it was too noisy. Re-enabling is now safe
+because retire-task lets the detector skip topics she's marked done. Replaced the on/off
+`signal_scanning_enabled` with a 3-state **`signal_mode`** (off / shadow / live, `app/config.py`,
+opt-in via `SIGNAL_MODE` in `.env`; public default off). **shadow** = scan real mail every ~6h and
+**log** each detection (`SHADOW-SIGNAL …` → `scripts/review_signals.sh`) but store nothing and never
+message her — deliberately log-only so a shadow detection can't suppress a later real ask via the
+14-day dedup, and going live has no backlog. **live** = the existing approve/reject ask. `jobs`
+branches on the mode; `ingest_signals(shadow=…)` is the seam. Her instance is running shadow now; the
+live flip is a one-line `.env` change after a few days of precision review. See `docs/14-future-work.md` #3.
+
 **Let a task be retired — the staleness root-fix.** Her transcript's loudest pain was Mochi nagging
 about things she'd already done ("I ALREADY GOT REJECTED FROM PERPLEXITY NO NEED TO KEEP REMINDING").
 Root cause: reminders were modeled as *instances* with per-row statuses; nothing recorded that the
