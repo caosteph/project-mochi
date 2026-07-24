@@ -97,41 +97,35 @@ prompt-injected. Full auditable list: [`docs/04-constitution.md`](./docs/04-cons
 
 ## Current status
 
-Built in phases; each has a build doc in [`docs/`](./docs).
+Everything below works today. Each capability's step-by-step build history lives in [`docs/`](./docs).
 
-- **P1 — memory core:** durable Postgres memory, local embeddings + hybrid recall, the tool-calling loop.
-- **P2 — Google + approval gate:** Calendar/Gmail (least-privilege), human-in-the-loop draft approval.
-- **P3A — proactive reminders:** natural-language reminders (one-off/recurring), pushed with quiet
-  hours + Done/Snooze, mirrored to Google Calendar.
-- **P3B — safe email reading:** the quarantined reader + a general signal pipeline (return / bill /
-  appointment / deadline / delivery) that asks before acting.
-- **P4A — sensitivity router + de-identified hosted consult** (`/ask`): raw data stays local; only
-  scrubbed, audited derivatives can reach an opt-in hosted model.
-- **P4B — the builder:** generates web apps + PDFs/Word docs, runs them in a sandbox, serves static
-  sites on your LAN. Solved the tool-count wall with dynamic per-turn tool binding.
-- **P6 — daily briefing:** one deterministic (no-LLM) morning digest of today's calendar, reminders,
-  and goals — pushed each morning and on demand via `/briefing`.
-- **P7 — read email on demand:** "what did the landlord's email say?" → a safe summary via the same
-  quarantined reader (raw body never reaches the main agent).
-- **P8 — web search:** "what's the weather / is X open / current price of Y" → the local model looks
-  it up online. Only a **PII-scrubbed** query leaves (you approve it first), results are synthesized
-  locally, every query is logged to `/sent`. Pluggable provider (Tavily or keyless DuckDuckGo).
-- **Memory, made real:** organic capture is slow (only ~7% of messages carry a self-fact), so memory
-  was **seeded** from a profile exported by another agent that already knows her (`import_profile.py`,
-  90 facts / 9 goals, `provenance=imported`, deduped through the real recall). A curated subset of
-  **pinned** style rules is then injected into the system prompt **every turn** (the *always-on
-  profile card*), so Mochi follows her voice without having to call `recall` first.
-- **Reliability pass:** the local model runs at an 8k context — at Ollama's default 4,096 a turn's
-  prompt (~4,000 tokens) left almost no room to generate, which silently degraded tool-calling;
-  fixing it took several previously-dead prompts from 0/23 to 18/18. Plus **launchd supervision**
-  with a dependency preflight, a **single-instance lock** (two pollers on one bot token answer every
-  message twice), reminder de-duplication, and formatting that renders *while* a reply streams.
-- **Tappable decisions:** when Mochi needs a yes/no or pick-one answer it shows **inline buttons**
-  rather than a question you have to type "yes" at (e.g. cancelling a reminder that matches more than
-  one → a picker). Built on the same human-in-the-loop `interrupt()` spine as draft approval.
-- **Tasks can be retired:** tell Mochi you've already done something ("I submitted the claims, stop
-  reminding me") and it records the *topic* as done — cancelling outstanding reminders and blocking any
-  re-creation from a later email — instead of just clearing one reminder that comes back.
+- **Remembers your life.** Durable memory in Postgres with local embeddings and hybrid recall. It was
+  seeded with a profile so it starts out knowing you, and a curated set of your own style rules is
+  pinned into every reply, so it follows your voice without having to look them up first.
+- **Watches your inbox, safely.** It reads Gmail and Calendar with least-privilege access: it can
+  draft an email but never send one. Untrusted email is parsed by a separate, tool-free reader that
+  only emits validated data, so a malicious message can't hijack it. From that it spots things worth
+  acting on (a return window, a bill, an appointment, a deadline, a delivery) and asks you first before
+  making a reminder. It can also summarize a specific email on request ("what did the landlord's email
+  say?").
+- **Reminds you, and knows when to stop.** Natural-language reminders, one-off or recurring, pushed
+  with quiet hours and Done/Snooze buttons and mirrored to Google Calendar. When you say you've already
+  done something, it retires the whole topic, cancelling outstanding reminders and blocking a later
+  email from re-creating them, instead of nagging about something that's finished.
+- **Briefs you each morning.** One digest of today's calendar, reminders, and goals, assembled without
+  the model (so it can't wander or dump raw data), pushed each morning or on demand with `/briefing`.
+- **Looks things up online.** Weather, hours, prices, "is X open." Only a scrubbed, PII-free query
+  leaves the machine, and you approve it before it goes; results are pulled together locally and every
+  search is logged.
+- **Builds things.** Small web apps and PDF or Word documents, generated and run in a sandbox, then
+  served to your phone over your home network.
+- **Asks a stronger model when it helps.** A de-identified, scrubbed, audited `/ask` can consult a
+  bigger hosted model for generic questions while your raw personal data stays local.
+- **Talks in buttons.** Any yes/no or pick-one decision shows up as tappable inline buttons rather than
+  a question you have to type "yes" at.
+- **Runs unattended.** Supervised by launchd (restarts on crash, repairs its own dependencies first), a
+  single-instance lock so it can't answer you twice, a local model tuned with enough context that
+  replies don't run dry mid-sentence, and text that formats as it streams.
 
 ## Roadmap & future work
 
@@ -201,7 +195,7 @@ CLAUDE.md       orientation + the non-negotiable safety rules — read this firs
 
 Two layers, because they catch different things:
 
-- **`tests/`** — a fast offline `pytest` suite (316 tests, ~30s) that mocks the model + Google.
+- **`tests/`** — a fast offline `pytest` suite (a few hundred tests, ~30s) that mocks the model + Google.
   Proves the plumbing. It earns its keep: writing the channel-button tests is what surfaced a live
   bug where pressing "Snooze" saved the change but crashed before confirming it.
 - **`scripts/verify_*.py`** — real-model checks that drive the *actual* agent (`build_agent()`) and
