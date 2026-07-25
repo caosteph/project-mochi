@@ -10,14 +10,21 @@ later phases.
 
 import logging
 from datetime import datetime
+from uuid import uuid4
 
-from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    RemoveMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from psycopg import Connection
 
-from app.agent import profile, router, tool_select
+from app.agent import profile, router, tool_select, toolcall_repair
 from app.agent.persona import build_system_prompt
 from app.agent.router import Sensitivity
 from app.agent.tools import ALL_TOOLS
@@ -25,6 +32,7 @@ from app.config import settings
 from app.memory.db import init_db
 
 log = logging.getLogger(__name__)
+_TOOL_NAMES = {t.name for t in ALL_TOOLS}
 
 # Mochi's voice + soft operating principles, sourced from the versioned persona.md.
 # Assembled once at import; the hard safety rules live in code, not this string.
@@ -70,6 +78,11 @@ class AgentState(MessagesState):
     """
 
     summary: str
+    # The tool names bound this turn, so the repair node can tell a mis-formatted call for a tool the
+    # model WAS offered (execute it) from a call for a tool it wasn't (topic bleed → strip it).
+    bound_tools: list[str]
+    # How many text-tool-calls have been repaired-into-execution this user turn (loop guard).
+    repair_count: int
 
 
 # How many recent user turns feed tool selection. More than one because a confirmation ("yes",
@@ -98,22 +111,30 @@ def fact_extractor():
     )
 
 
-def _agent_node(state: AgentState) -> dict:
-    """Single reasoning step.
+def _build_messages(state: AgentState, *, messages=None) -> list:
+    """Assemble the prompt: stable persona (+ profile card + rolling summary) first, history, then a
+    trailing volatile time note.
 
-    Message order is deliberate for latency: the *stable* persona (+ rolling
-    summary, which changes rarely) leads, so Ollama's prefix KV-cache is reused
-    across turns — a stable prompt re-evaluates ~10x faster than a changed one.
-    The volatile current date/time therefore goes in a trailing message *after*
-    the history, so it can't bust that cached prefix every minute (which it did
-    when it lived in the leading system prompt).
-    """
+    Message order is deliberate for latency: the *stable* persona (+ rolling summary, which changes
+    rarely) leads, so Ollama's prefix KV-cache is reused across turns — a stable prompt re-evaluates
+    ~10x faster than a changed one. The volatile current date/time therefore goes in a trailing
+    message *after* the history, so it can't bust that cached prefix every minute. `messages` overrides
+    the history (used by the repair node to re-answer without an offending message)."""
     core = SYSTEM_PROMPT + _profile_card()
     if state.get("summary"):
-        core += f"\n\n---\nSummary of earlier conversation:\n{state['summary']}"
+        core += (
+            "\n\n---\nBackground from earlier in this conversation (context only — "
+            f"answer the user's latest message, don't resume a finished topic):\n{state['summary']}"
+        )
     now = datetime.now().astimezone()
     time_note = SystemMessage(f"(For reference, the current date/time is {now:%A, %Y-%m-%d %H:%M %Z}.)")
-    messages = [SystemMessage(core), *state["messages"], time_note]
+    history = state["messages"] if messages is None else messages
+    return [SystemMessage(core), *history, time_note]
+
+
+def _agent_node(state: AgentState) -> dict:
+    """Single reasoning step: bind a small relevant tool subset and invoke the model."""
+    messages = _build_messages(state)
 
     # Bind a small, relevant subset of tools for this turn — selected from the last few user
     # messages, not just the newest one. Selecting from the newest alone is what broke her
@@ -128,7 +149,62 @@ def _agent_node(state: AgentState) -> dict:
     ][:TOOL_SELECT_TURNS]
     subset = tool_select.select_tools("\n".join(reversed(recent_human)), ALL_TOOLS)
     llm = _base_llm.bind_tools(subset) if subset else _base_llm
-    return {"messages": [llm.invoke(messages)]}
+    out = {"messages": [llm.invoke(messages)], "bound_tools": [t.name for t in subset]}
+    # A fresh user turn resets the per-turn repair budget (the last message is her new HumanMessage;
+    # on a post-tool re-invoke it's a ToolMessage, so the budget persists within the turn).
+    if state["messages"] and isinstance(state["messages"][-1], HumanMessage):
+        out["repair_count"] = 0
+    return out
+
+
+def _plain_reply(state: AgentState) -> str:
+    """A tools-free answer to the user's actual question, used when a stripped reply would otherwise be
+    empty (the model produced ONLY an unwanted tool call). Re-invokes without the offending last
+    message and with no tools bound, so it can't recurse into another text tool-call."""
+    try:
+        history = state["messages"][:-1]  # drop the AIMessage that was just the tool-call
+        result = _base_llm.invoke(_build_messages(state, messages=history))
+        text = result.content if isinstance(result.content, str) else ""
+        return toolcall_repair.strip_toolcall(text) or "Sorry, could you say that another way?"
+    except Exception:
+        log.exception("plain-reply fallback failed")
+        return "Sorry, could you say that another way?"
+
+
+def _repair_node(state: AgentState) -> dict:
+    """Catch a tool call the model wrote as *text* instead of calling, so raw JSON never reaches her.
+
+    - If it names a tool that WAS bound this turn (a mis-format), convert it to a real tool_call and
+      let the ToolNode run it — turning the failure into the intended action. Side-effectful tools stay
+      gated because they still hit the approval interrupt(). Capped at one execute-repair per turn.
+    - If it names a tool that was NOT bound (topic bleed / hallucination — the selector judged it
+      irrelevant to recent turns), strip the JSON and keep the prose. She gets a clean answer.
+    Runs only when the last message is an AIMessage with no real tool_calls."""
+    msgs = state["messages"]
+    last = msgs[-1] if msgs else None
+    if not isinstance(last, AIMessage) or getattr(last, "tool_calls", None):
+        return {}
+    content = last.content if isinstance(last.content, str) else ""
+    hit = toolcall_repair.find_text_toolcall(content)
+    if hit is None:
+        return {}
+
+    known = hit.name in _TOOL_NAMES
+    bound = hit.name in (state.get("bound_tools") or [])
+    count = state.get("repair_count", 0)
+    cleaned = toolcall_repair.strip_toolcall(content)
+
+    if known and bound and count < 1:
+        log.info("repair: executing text tool-call for bound tool %r", hit.name)
+        repaired = AIMessage(
+            id=last.id,
+            content=cleaned,
+            tool_calls=[{"name": hit.name, "args": hit.args, "id": f"repair-{uuid4().hex[:8]}"}],
+        )
+        return {"messages": [repaired], "repair_count": count + 1}
+
+    log.info("repair: stripping text tool-call for %r (known=%s bound=%s)", hit.name, known, bound)
+    return {"messages": [AIMessage(id=last.id, content=cleaned or _plain_reply(state))]}
 
 
 def _estimate_tokens(messages) -> int:
@@ -180,9 +256,11 @@ def _maybe_summarize_node(state: AgentState) -> dict:
     to_summarize = messages[:cut]
     prior_summary = state.get("summary", "")
     prompt = (
-        "Summarize the following conversation concisely, preserving important facts, "
-        "ongoing tasks, and open questions. If there's an existing summary, extend it "
-        "rather than starting over.\n\n"
+        "Summarize the conversation so far concisely, as context for future turns. Preserve durable "
+        "facts and genuinely OPEN threads. Crucially, mark anything that was completed, answered, "
+        "declined, or abandoned as resolved, so a finished topic does not look like pending work and "
+        "keep-steering later replies. Lead with the current topic. If there's an existing summary, "
+        "update it rather than starting over.\n\n"
         f"Existing summary:\n{prior_summary or '(none yet)'}\n\n"
         "Conversation to fold in:\n"
         + "\n".join(f"{m.type}: {m.content}" for m in to_summarize)
@@ -211,12 +289,15 @@ def build_agent():
 
     graph = StateGraph(AgentState)
     graph.add_node("agent", _agent_node)
+    graph.add_node("repair", _repair_node)
     graph.add_node("tools", ToolNode(ALL_TOOLS))
     graph.add_node("maybe_summarize", _maybe_summarize_node)
     graph.add_edge(START, "agent")
-    # Override tools_condition's default END branch to route through
-    # maybe_summarize first, instead of ending immediately.
-    graph.add_conditional_edges("agent", tools_condition, {"tools": "tools", END: "maybe_summarize"})
+    # If the model emitted a real tool_call, run it. Otherwise pass through `repair`, which catches a
+    # tool call written as TEXT (executes it if the tool was bound, strips it if not) so raw JSON never
+    # reaches the user; repair then routes to tools (if it produced a call) or on to summarization.
+    graph.add_conditional_edges("agent", tools_condition, {"tools": "tools", END: "repair"})
+    graph.add_conditional_edges("repair", tools_condition, {"tools": "tools", END: "maybe_summarize"})
     graph.add_edge("tools", "agent")
     graph.add_edge("maybe_summarize", END)
     return graph.compile(checkpointer=checkpointer)

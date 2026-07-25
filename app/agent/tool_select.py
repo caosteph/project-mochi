@@ -40,8 +40,14 @@ CORE = ("recall", "remember_fact", "ask_user")
 # High-signal keyword → tool boosts. Union'd in (false positives only add a capped tool;
 # they never remove the right one), so we can be generous.
 KEYWORDS: dict[str, tuple[str, ...]] = {
-    "build_web_app": ("build", "website", "web page", "webpage", "web app", "landing page", "web site", "html page"),
-    "make_document": ("pdf", "document", " doc", "word doc", "write-up", "write up", "one-pager", "one page", "report"),
+    # Deliberately NOT the bare words "build" / "web app" / "web site": those false-matched planning
+    # and questions like "how would I access that web app", binding the builder for a conversation that
+    # wanted a plain answer (2026-07-24). These are explicit build intents; embedding routing still
+    # catches other genuine build phrasings ("build me a bakery page"). A "make me a plan / meal plan /
+    # workout plan" request must stay conversational (iterable), not become an opaque web app.
+    "build_web_app": ("website", "web page", "webpage", "landing page", "html page", "build me a site",
+                      "build a site", "build me a web", "build a web"),
+    "make_document": ("pdf", "document", "word doc", "write-up", "write up", "one-pager", "report"),
     "add_reminder": ("remind", "reminder", "ping me", "nudge me", "don't let me forget"),
     "list_reminders": ("my reminders", "upcoming reminders", "what reminders"),
     "cancel_reminder": ("cancel", "delete the reminder", "remove the reminder"),

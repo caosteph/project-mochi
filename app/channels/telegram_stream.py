@@ -16,6 +16,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
+from app.agent.toolcall_repair import TOOLCALL_HINT
 from app.channels.render import (
     balance_markdown,
     chunk,
@@ -30,6 +31,16 @@ log = logging.getLogger(__name__)
 
 _TELEGRAM_TEXT_CAP = 4000  # a little under Telegram's 4096 so an edit never 400s on length
 _EDIT_THROTTLE_SECONDS = 1.0  # how often the streaming reply may be re-edited
+
+
+def _visible(text: str) -> str:
+    """Hide a tool call the model is writing as TEXT (raw ```json {"name":...}) from the live reply —
+    show only the prose before it. The graph's repair node then executes or strips that call, and the
+    final authoritative edit shows the clean result. So she never sees raw tool-call JSON on screen."""
+    if not text:
+        return text
+    m = TOOLCALL_HINT.search(text)
+    return text[: m.start()].rstrip() if m else text
 
 
 class StreamingMixin:
@@ -173,6 +184,19 @@ class StreamingMixin:
                         # the post-tool reply streams.
                         reply_buf = ""
                         continue
+                    # The repair node fires when the model wrote a tool call as text. If it executed it
+                    # (real tool_calls now), treat like a tool step and drop the streamed JSON; if it
+                    # stripped it, its content is the authoritative clean reply.
+                    repair_payload = update.get("repair")
+                    if repair_payload and repair_payload.get("messages"):
+                        msg = repair_payload["messages"][-1]
+                        if getattr(msg, "tool_calls", None):
+                            reply_buf = ""
+                            n_tool_steps += 1
+                            await set_status(status_for_tool(msg.tool_calls[-1]["name"]))
+                        elif msg.content:
+                            reply = msg.content
+                        continue
                     agent_payload = update.get("agent")
                     if agent_payload and agent_payload.get("messages"):
                         msg = agent_payload["messages"][-1]
@@ -193,7 +217,7 @@ class StreamingMixin:
                     now = loop.time()
                     if now - last_edit >= _EDIT_THROTTLE_SECONDS:  # throttle Telegram edits
                         last_edit = now
-                        await show_reply(reply_buf)
+                        await show_reply(_visible(reply_buf))  # never stream raw tool-call JSON
         finally:
             stop.set()
             await typing
@@ -207,7 +231,9 @@ class StreamingMixin:
         # displayed — this final edit guarantees the complete text is what's on screen, and
         # re-renders it without the balancing hack now that the markers are genuinely closed.
         if interrupt_payload is None and error is None:
-            final_text = (reply or reply_buf or "Done.").strip()
+            # `reply` (agent/repair authoritative text) is already clean; the reply_buf fallback is
+            # passed through _visible so a stray streamed tool-call can't survive into the final edit.
+            final_text = (reply or _visible(reply_buf) or "Done.").strip()
             await show_reply(final_text)
             if reply_msg_id is not None and final_text:
                 try:
