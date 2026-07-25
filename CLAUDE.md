@@ -77,6 +77,22 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 
 ## Current status
 
+**Multi-turn robustness, round 1 — never show raw tool-call JSON.** Real multi-turn chat was bad: raw
+` ```json {"name":…}``` ` streamed into the chat, a factual question got dragged back into a prior task,
+and "make me a plan" built an opaque web app. Root cause (confirmed against code + the live selector):
+native tool-calling means a tool the per-turn dynamic binding didn't bind can't be *called*, so the 7B
+writes it into `content` and `tools_condition` (which routes on `.tool_calls`) lets it leak. Fixes: a
+pure `app/agent/toolcall_repair.py` (strictly detect/strip a text tool-call — needs a name AND an
+arguments key, so real JSON survives) + a graph **repair node** (`bound_tools`/`repair_count` in
+`AgentState`: execute the call if that tool was bound this turn — a repaired `create_draft` still hits
+the approval `interrupt()` — else strip it; one-per-turn loop cap) + **stream suppression** (`_visible`
+in `telegram_stream`) so nascent JSON never flashes; **sharper build/doc selection** so planning stays
+conversational/iterable; and a **summary focus-hygiene** reword so a finished topic stops steering.
+Gated by a new real-model `scripts/verify_multiturn.py` (5/5) + `tests/test_toolcall_repair.py` +
+`tests/test_graph_repair.py`; `verify_scenarios` unregressed. **Round 2 is the builder itself** (opaque,
+can't iterate, narrates instead of acting — the bigger 2026-07-25 pain): see `docs/14-future-work.md`
+#30, and #29 for the Mac-mini migration + tech-stack changes.
+
 **Memory, made real: seeded + an always-on profile card.** Prod memory was 3 facts from 68 user
 messages. Diagnosis (replaying her real history through the live extractor): the extractor is precise
 but only ~7% of messages carry an explicit self-fact, so organic capture is inherently slow. Fixed by

@@ -263,7 +263,7 @@ plan (better on the mini). **Medium.**
 a periodic "does this still match reality?" pass, and prefer linking measurements over restating them.
 **Small, recurring.**
 
-### 29. Mac mini + a larger local model (and the self-hosted gate runner)
+### 29. Mac mini migration + a larger local model (and the self-hosted gate runner)
 Still the best raw quality lever — reliability, memory headroom, and it's the only way to run the
 **full real-model gate in CI**: `verify_all.sh` can't run on GitHub (no Ollama, by design), so a
 self-hosted runner on the mini is the only path to gating model behavior automatically rather than by
@@ -271,9 +271,56 @@ remembering to run it locally. Ranked last because it's ~$1.4k against a $0 budg
 already delivered much of what it promised. Revisit after *Try a newer same-size local model* says
 whether a free model swap gets there. **Hardware + a migration pass.**
 
+**Tech-stack changes the migration would make (so the move is a checklist, not a redesign):**
+- **Bigger model.** A mini with 36-64GB unified memory runs a 32B-class local model (Qwen2.5-32B / a
+  Qwen3 successor) at usable speed. That is the single biggest lever on the multi-turn failures below
+  (correction-following, not-narrating, honoring negative constraints are all model-capability limits
+  on a 7B). Keep the OpenAI-compatible seam so it stays a base-URL/model-name swap.
+- **Serving engine.** Consider **vLLM** (or MLX-serve) instead of Ollama for higher throughput and, more
+  importantly, first-class **guided/constrained decoding** (grammars, guaranteed tool-call JSON) — which
+  would let the `toolcall_repair` guard become a backstop rather than a primary. Still behind the same
+  OpenAI API, so `app/agent/router.py` is the only touch point.
+- **Real sandbox.** Flip `SubprocessSandbox` → the planned `DockerSandbox` (#26); the mini can host a
+  container runtime the laptop shouldn't.
+- **Self-hosted CI runner** on the mini running `verify_all.sh` on push, so model-behavior gates
+  (verify_scenarios / verify_multiturn / verify_firing) run automatically, not by memory.
+- **Always-on host.** launchd stays, but a dedicated always-on machine removes the "laptop asleep →
+  Mochi down" gap and makes the proactive scanner + backups genuinely reliable.
+- **Migration checklist:** move Postgres/PGDATA (or `pg_dump`→restore), the `.env`, OAuth tokens,
+  `workspace/`, and the launchd plists; re-run `restore_check.sh` to prove the DB; keep FileVault on.
+
+### 30. The builder is opaque and can't iterate (the 2026-07-25 pain)
+Her 2026-07-25 chat was dominated by the builder, not tool-firing: she couldn't see the built app, it
+came out "plain / awful", and every "make it richer / use tailwind / fix it" produced **narration**
+("I'm enhancing the web app…, would you like me to…") instead of an actual rebuild — because
+`build_web_app` regenerates from a description with **no memory of the existing app**, and on
+iteration turns it often wasn't even bound. Design changes: (a) an **`edit_web_app`/revise** tool that
+feeds the current project's code + the critique back to codegen so "make it better" actually iterates;
+(b) **quality** — default to Tailwind + a richer codegen system prompt so the first output isn't bare;
+(c) **visibility/feedback** — reliably return the URL, and add the "verify/validate the code" step she
+explicitly asked for (lint/validate the generated HTML); a screenshot/preview loop needs a headless
+browser (bigger, better on the mini); (d) **bind the edit tool on "fix/improve/enhance/use X"**
+phrasings so the model can act instead of narrate. This is Phase 4B steps 2-3 made concrete by real
+use. **Medium-large** (and materially easier with #29's bigger model).
+
 ---
 
 ## ✅ Resolved (kept — the lessons still apply)
+
+### Multi-turn robustness, round 1: never show raw tool-call JSON (2026-07-25)
+Real multi-turn chat was "mixed / bad": raw ` ```json {"name":…}``` ` blocks streamed into the chat, a
+factual question got bulldozed back into a prior task, and "make me a plan" built an opaque web app
+instead of answering. Root cause (confirmed): native tool-calling means that when the model wants a
+tool this turn's dynamic binding didn't bind, it writes the call into `content`; `tools_condition` sees
+no `tool_calls` and it leaks. Fixes: a pure `app/agent/toolcall_repair.py` (detect/strip a text
+tool-call, strictly — requires a name AND an arguments key so real JSON survives) + a graph **repair
+node** (execute it if the tool was bound this turn, strip it if not — a bound `create_draft` still hits
+the approval interrupt; capped one-per-turn against loops) + **stream suppression** so nascent JSON
+never flashes; **sharper build/doc selection** so planning stays conversational and iterable; and a
+**summary focus-hygiene** reword so a finished topic stops steering. Proven by a new real-model
+`scripts/verify_multiturn.py` (5/5: no JSON across turns, topic-switch answered, plan stays
+conversational, correction honored) plus `tests/test_toolcall_repair.py` + `tests/test_graph_repair.py`.
+**Round 2 is the builder itself (#30)** — the bigger remaining pain from the 2026-07-25 chat.
 
 ### CI parity: catch "green locally, red in CI" before the push (2026-07-24)
 The Tests job was red for **four straight commits** and no one noticed (Lint was green, and nothing

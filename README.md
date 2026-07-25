@@ -138,8 +138,15 @@ the detailed phase plan is [`docs/00-plan.md`](./docs/00-plan.md). Highlights:
 - **Flip the email signal scanner to live** — the flagship proactive feature currently runs in
   **shadow mode** (scans real mail and logs detections, stores nothing, messages nothing) pending a
   few days of precision review; going live is a one-line `.env` change.
-- **Try a newer same-size local model** — context, not model capability, turned out to be the
-  bottleneck, so the model choice deserves a fair re-test. Free.
+- **Make the builder iterate** — the biggest real-use gap: "make it richer / use tailwind / fix it"
+  should actually revise the existing app (feed its code back to codegen) instead of narrating, and the
+  output should be higher-quality and reviewable. See future-work #30.
+- **Migrate to a Mac mini + a larger local model** — the single biggest quality lever (correction-
+  following, not narrating, honoring constraints are 7B-capability limits); also enables a serving
+  engine with guaranteed tool-call decoding, a real Docker sandbox, and a self-hosted CI runner for the
+  full real-model gate. Tech-stack changes are spelled out in future-work #29.
+- **Try a newer same-size local model** — a free interim before the mini; the model choice deserves a
+  fair re-test now that context, not capability, was the earlier bottleneck.
 - **Reliability/ops:** checkpoint pruning, Alembic migrations, a Docker sandbox.
 - **Capabilities:** Google Drive, deeper memory, voice notes, email-in-briefing, a generalizable
   per-action approval layer.
@@ -173,7 +180,7 @@ Message your bot on Telegram — the reply is generated entirely on your own mac
 ```
 app/
   agent/        LangGraph graph, persona, tools, router, quarantined reader, tool selection,
-                the always-on profile card (pinned memory injected every turn)
+                the always-on profile card (pinned memory), tool-call repair (no raw JSON leaks)
   channels/     Telegram adapter — core + streaming/commands/buttons mixins, rendering
                 (and a Channel interface + contract for future transports)
   integrations/ Google auth / Calendar / Gmail
