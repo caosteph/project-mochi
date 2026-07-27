@@ -78,7 +78,13 @@ _FRAMEWORK_SYSTEM = SystemMessage(
 
 
 def _raw_model():
-    return router.chat_model(Sensitivity.NON_SENSITIVE, temperature=0.3).bind(max_tokens=_MAX_OUTPUT_TOKENS)
+    # max_tokens goes through the router (a first-class param now) rather than a post-hoc .bind():
+    # a single-file Tailwind+Alpine app is a few KB, so give generation ample room (truncation is
+    # what made the first revise fail). temperature 0.3 is a deliberate codegen choice, not the
+    # agent profile default.
+    return router.chat_model(
+        Sensitivity.NON_SENSITIVE, temperature=0.3, max_tokens=_MAX_OUTPUT_TOKENS
+    )
 
 
 def _generate(system_text: str, user_text: str) -> str:

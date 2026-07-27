@@ -116,6 +116,8 @@ _DOC_SYSTEM = SystemMessage(
 
 def _write_document(description: str) -> str:
     """Generate document content on the LOCAL model (personal content stays local)."""
+    # temperature is pinned here, NOT inherited from the agent profile: this is tool-free prose
+    # generation, so it isn't the tool-adherence knob `settings.model_temperature` governs.
     return router.chat_model(Sensitivity.SENSITIVE, temperature=0.4).invoke(
         [_DOC_SYSTEM, HumanMessage(description)]
     ).content

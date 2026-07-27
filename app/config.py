@@ -24,6 +24,19 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434/v1"
     local_model: str = "qwen2.5:7b"
 
+    # Model behavior profile — the per-model knobs the router applies when a caller doesn't pass its
+    # own. Grouped here (not hardcoded) so swapping LOCAL_MODEL (e.g. a bigger model on the Mac mini,
+    # docs/14 #29, or a newer same-size one, #9) is a config change through the one router seam, not a
+    # code edit. `model_temperature` is the DEFAULT tool-calling temperature for the primary agent —
+    # 0.4 is lower than a chat default because tool-call adherence on the 7B degrades at higher temp
+    # (see docs/05). Task-specific temps stay explicit at their call sites (0.3 summarize/codegen,
+    # 0 structured-extract, 0.5 /ask, and the tool-free expert/doc generators) — they're deliberate
+    # deviations, not this knob. NOTE: context length is NOT here — the OpenAI endpoint ignores
+    # per-request num_ctx, so it lives in ollama/Modelfile.qwen2.5-7b-8k (or a serve-time flag on the
+    # mini). None output cap = unbounded (current behavior).
+    model_temperature: float = 0.4
+    model_max_output_tokens: int | None = None
+
     # Privacy master switch. When true, EVERYTHING runs locally regardless of the
     # hosted settings below — the router honors this first (fails closed to local).
     local_only: bool = True

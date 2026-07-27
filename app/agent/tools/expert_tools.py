@@ -47,6 +47,8 @@ def consult_expert(question: str) -> str:
     if sanitize.is_too_personal(hits):
         return _TOO_PERSONAL
     try:
+        # temperature pinned (not the agent profile default): the expert is a different, tool-free
+        # hosted model answering a de-identified question — not the local tool-calling path.
         answer = router.chat_model(Sensitivity.NON_SENSITIVE, temperature=0.4).invoke(
             [_EXPERT_SYSTEM, HumanMessage(clean)]
         ).content

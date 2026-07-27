@@ -92,9 +92,11 @@ TOOL_SELECT_TURNS = 3
 # The main agent is the SENSITIVE path (it has memory + Google + persona) → the router
 # always resolves this to the LOCAL model. Tools are bound PER TURN, not here: _agent_node
 # selects a small relevant subset and binds only those (see app/agent/tool_select.py).
-# Temperature 0.4 is lower than Phase 0's 0.7: tool-call adherence on a 7B degrades at higher
-# temperature (see docs/05-phase1-build.md's tool-invocation-reliability gotcha).
-_base_llm = router.chat_model(Sensitivity.SENSITIVE, temperature=0.4)
+# Temperature is left to the profile default (settings.model_temperature, 0.4) — lower than
+# Phase 0's 0.7 because tool-call adherence on a 7B degrades at higher temperature (docs/05).
+# This is THE tool-calling temperature the profile knob owns; a model swap retunes it in config.
+# Built at import, so a config change to model_temperature takes effect on process restart.
+_base_llm = router.chat_model(Sensitivity.SENSITIVE)
 
 # Plain, tools-free local model for summarization, so the summarizer never emits a tool call.
 _summarizer_llm = router.chat_model(Sensitivity.SENSITIVE, temperature=0.3)
