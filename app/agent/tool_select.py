@@ -47,6 +47,12 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
     # workout plan" request must stay conversational (iterable), not become an opaque web app.
     "build_web_app": ("website", "web page", "webpage", "landing page", "html page", "build me a site",
                       "build a site", "build me a web", "build a web"),
+    # Iterating on an app she already has — the phrasings from the 2026-07-25 chat where the builder
+    # wasn't bound so the model narrated ("I'm enhancing…") instead of rebuilding.
+    "edit_web_app": ("make it richer", "make it better", "make it nicer", "use tailwind", "looks bad",
+                     "looks awful", "it's so plain", "redesign", "improve the", "enhance the",
+                     "fix the web app", "fix the app", "fix the site", "fix the page", "update the app",
+                     "change the app", "polish it", "make the web app", "richer web app", "prettier"),
     "make_document": ("pdf", "document", "word doc", "write-up", "write up", "one-pager", "report"),
     "add_reminder": ("remind", "reminder", "ping me", "nudge me", "don't let me forget"),
     "list_reminders": ("my reminders", "upcoming reminders", "what reminders"),
@@ -83,7 +89,25 @@ REGEX_BOOSTS: dict[str, re.Pattern] = {
         re.I,
     ),
     "list_reminders": re.compile(r"\bwhat.{0,20}\breminders?\b|\breminders?\b.{0,15}\b(do i have|are set)\b", re.I),
+    # "fix it / make it look better / redesign the app" → iterate on the existing build. Defaults to the
+    # latest project, so a spurious match is harmless (it just says "build one first").
+    "edit_web_app": re.compile(
+        r"\b(fix|improve|redesign|polish|enhance|upgrade|restyle|revamp)\b[^.?!]{0,30}"
+        r"\b(it|this|that|the (web ?)?app|the site|the page|the design|the layout|the ui)\b"
+        r"|\bmake it (look )?(better|nicer|richer|prettier|cleaner|more modern|pop)\b"
+        r"|\buse tailwind\b",
+        re.I,
+    ),
 }
+
+# If she just told me to stop with reminders, don't bind add_reminder this turn — honor it while it's
+# fresh (within the recent-turns window fed to selection). She had to shout "NO MORE REMINDERS" at a
+# builder conversation that kept offering them.
+_SUPPRESS_REMINDERS = re.compile(
+    r"\bno (more )?reminders?\b|\bstop\b[^.?!]{0,45}\bremind|\bdon'?t\b[^.?!]{0,20}\bremind"
+    r"|\bwithout\b[^.?!]{0,20}\breminder",
+    re.I,
+)
 
 _tool_vecs: dict[str, list[float]] = {}
 
@@ -150,4 +174,16 @@ def select_tools(message: str, all_tools: list, *, k: int = 6, cap: int = 10) ->
             chosen.append(by_name[name])
         if len(chosen) >= cap:
             break
+    if _SUPPRESS_REMINDERS.search(message):
+        chosen = [t for t in chosen if t.name != "add_reminder"]
+    # A strong "change the existing app" signal → don't also offer a fresh build, or the 7B rebuilds
+    # from scratch (losing the app) instead of iterating. Measured: "make it richer / use tailwind"
+    # picked build_web_app over edit_web_app until build was suppressed here.
+    edit_intent = (
+        any(kw in low for kw in KEYWORDS.get("edit_web_app", ())) or REGEX_BOOSTS["edit_web_app"].search(message)
+    )
+    if edit_intent:
+        chosen = [t for t in chosen if t.name != "build_web_app"] or chosen
+        if not any(t.name == "edit_web_app" for t in chosen) and "edit_web_app" in by_name:
+            chosen = [*chosen[: cap - 1], by_name["edit_web_app"]]
     return chosen

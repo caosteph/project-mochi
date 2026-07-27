@@ -12,7 +12,7 @@ from langchain_core.tools import tool
 
 from app.agent import rate_limit, router
 from app.agent.router import Sensitivity
-from app.builder import codegen, docs, serve, workspace
+from app.builder import codegen, docs, serve, validate, workspace
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +57,55 @@ def build_web_app(description: str, framework: bool = False) -> str:
             "framework apps is coming in the next step — for now I can build and serve static sites."
         )
     url = serve.serve_static(proj_dir)
-    return f"Done! Your site is live at {url} — open it on your phone (same wifi). Ask me to make it public to view anywhere."
+    _ok, note = _validate(project)
+    caveat = f" (heads up: {note})" if not _ok else ""
+    return (
+        f"Done! Your site is live at {url} — open it on your phone (same wifi){caveat}. "
+        "Tell me what to change (e.g. \"make it richer\", \"use a dark theme\") and I'll update it in place."
+    )
+
+
+def _validate(project: "codegen.GeneratedProject") -> tuple[bool, str]:
+    """Structural check on the project's index.html — the 'validate the code' Stephanie asked for."""
+    index = next((f.content for f in project.files if f.path.endswith("index.html")), "")
+    return validate.validate_index_html(index) if index else (True, "")
+
+
+@tool
+def edit_web_app(change: str, name: str | None = None) -> str:
+    """Change or improve a web app you already built — e.g. "make it richer", "use Tailwind", "fix the
+    layout", "add a dark-mode toggle", "it looks bad, redesign it". `change` is what to change; `name`
+    is optional and defaults to the most recent app. This regenerates the app WITH its current code as
+    context (so it iterates, not restarts) and updates it in place. Returns the link — just refresh."""
+    if not rate_limit.allow("build_web_app"):  # shares the build budget
+        return "I've hit my hourly build limit — try again in a bit."
+    target = name or workspace.latest_project()
+    if not target:
+        return "I haven't built a web app yet — tell me what to build and I'll make it first."
+    try:
+        proj_dir = workspace.project_path(target)
+    except FileNotFoundError:
+        return f"I don't have a project named {target!r}. Say 'list my projects' to see them."
+    existing = [codegen.FileSpec(path=r, content=c) for r, c in workspace.read_files(proj_dir)]
+    if not existing:
+        return f"{target} has no files I can edit."
+    try:
+        project = codegen.revise_project(existing, change)
+    except Exception as exc:
+        log.exception("revise failed")
+        return f"I couldn't update it — {exc}."
+    if not project.files:
+        return "The update came back empty — mind rephrasing the change?"
+    for f in project.files:
+        try:
+            workspace.write_file(proj_dir, f.path, f.content)
+        except ValueError:
+            log.warning("skipped unsafe file path from codegen: %s", f.path)
+    # The static server serves the directory live, so the same URL now shows the update on refresh.
+    url = serve.running().get(proj_dir.name) or serve.serve_static(proj_dir)
+    ok, note = _validate(project)
+    caveat = f" (heads up: {note})" if not ok else ""
+    return f"Updated it — refresh {url} to see the change{caveat}."
 
 
 _DOC_SYSTEM = SystemMessage(
@@ -123,4 +171,4 @@ def list_projects() -> str:
     return "\n".join(f"- {p}" + (f" — live at {live[p]}" if p in live else "") for p in projects)
 
 
-BUILDER_TOOLS = [build_web_app, make_document, serve_project, list_projects]
+BUILDER_TOOLS = [build_web_app, edit_web_app, make_document, serve_project, list_projects]

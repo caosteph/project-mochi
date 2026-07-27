@@ -55,3 +55,25 @@ def list_projects() -> list[str]:
     if not WORKSPACE_ROOT.is_dir():
         return []
     return sorted(p.name for p in WORKSPACE_ROOT.iterdir() if p.is_dir())
+
+
+def latest_project() -> str | None:
+    """The most-recently-modified project — what "the web app" / "it" refers to when she asks to edit
+    without naming one. Single-user, so most-recent is the right default."""
+    if not WORKSPACE_ROOT.is_dir():
+        return None
+    dirs = [p for p in WORKSPACE_ROOT.iterdir() if p.is_dir()]
+    return max(dirs, key=lambda p: p.stat().st_mtime).name if dirs else None
+
+
+def read_files(project_dir: Path) -> list[tuple[str, str]]:
+    """Read a project's text files as (relpath, content), so an edit can feed the current code back to
+    the generator. Skips binary/unreadable files."""
+    out: list[tuple[str, str]] = []
+    for p in sorted(project_dir.rglob("*")):
+        if p.is_file():
+            try:
+                out.append((str(p.relative_to(project_dir)), p.read_text(encoding="utf-8")))
+            except (UnicodeDecodeError, OSError):
+                continue
+    return out

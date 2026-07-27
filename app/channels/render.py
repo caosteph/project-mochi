@@ -34,6 +34,7 @@ TOOL_STATUS = {
     "consult_expert": "🧭 Consulting a bigger model…",
     "web_search": "🔎 Searching the web…",
     "build_web_app": "🛠️ Building that…",
+    "edit_web_app": "🎨 Updating your web app…",
     "make_document": "📄 Putting that document together…",
     "serve_project": "🌐 Serving that up…",
     "list_projects": "📁 Checking what I've built…",

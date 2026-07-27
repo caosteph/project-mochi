@@ -29,7 +29,7 @@ from app.memory.models import Reminder, ReminderStatus
 # choice flow end-to-end).
 NEEDS_EXTERNAL = {
     "calendar_list_events", "gmail_list_recent", "read_email", "create_draft",
-    "web_search", "consult_expert", "build_web_app", "make_document", "serve_project",
+    "web_search", "consult_expert", "build_web_app", "edit_web_app", "make_document", "serve_project",
     "ask_user",
 }
 
