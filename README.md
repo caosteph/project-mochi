@@ -117,8 +117,9 @@ Everything below works today. Each capability's step-by-step build history lives
 - **Looks things up online.** Weather, hours, prices, "is X open." Only a scrubbed, PII-free query
   leaves the machine, and you approve it before it goes; results are pulled together locally and every
   search is logged.
-- **Builds things.** Small web apps and PDF or Word documents, generated and run in a sandbox, then
-  served to your phone over your home network.
+- **Builds things.** Polished single-page web apps (Tailwind + Alpine, no build step) and PDF or Word
+  documents, served to your phone over your home network. Say "make it richer" or "use a dark theme"
+  and it revises the same app in place instead of starting over.
 - **Asks a stronger model when it helps.** A de-identified, scrubbed, audited `/ask` can consult a
   bigger hosted model for generic questions while your raw personal data stays local.
 - **Talks in buttons.** Any yes/no or pick-one decision shows up as tappable inline buttons rather than
@@ -138,9 +139,9 @@ the detailed phase plan is [`docs/00-plan.md`](./docs/00-plan.md). Highlights:
 - **Flip the email signal scanner to live** — the flagship proactive feature currently runs in
   **shadow mode** (scans real mail and logs detections, stores nothing, messages nothing) pending a
   few days of precision review; going live is a one-line `.env` change.
-- **Make the builder iterate** — the biggest real-use gap: "make it richer / use tailwind / fix it"
-  should actually revise the existing app (feed its code back to codegen) instead of narrating, and the
-  output should be higher-quality and reviewable. See future-work #30.
+- **Let the builder SEE its output** — it now produces polished Tailwind+Alpine apps and revises them
+  in place, but it still can't view the render, so "it looks bad" relies on your eyes. A headless-
+  browser screenshot fed to a vision pass would let it self-correct. See future-work #30.
 - **Migrate to a Mac mini + a larger local model** — the single biggest quality lever (correction-
   following, not narrating, honoring constraints are 7B-capability limits); also enables a serving
   engine with guaranteed tool-call decoding, a real Docker sandbox, and a self-hosted CI runner for the
@@ -187,7 +188,7 @@ app/
   memory/       SQLModel models, embeddings, hybrid recall, fact extraction
   proactive/    reminders (+ reminder_time parsing, reminder_calendar mirroring), email-signal
                 scanning, the daily briefing, the job scheduler
-  builder/      sandboxed web-app + document generation and LAN serving
+  builder/      sandboxed web-app (Tailwind+Alpine, iterative) + document generation, LAN serving
 docs/           the roadmap, primers, and a build guide per phase (single source of truth)
 scripts/        verify_*.py real-model checks + preflight/run wrappers (_verify_lib.py is shared)
 tests/          offline pytest suite (mocks the model + Google)

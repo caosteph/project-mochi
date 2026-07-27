@@ -289,23 +289,35 @@ whether a free model swap gets there. **Hardware + a migration pass.**
 - **Migration checklist:** move Postgres/PGDATA (or `pg_dump`→restore), the `.env`, OAuth tokens,
   `workspace/`, and the launchd plists; re-run `restore_check.sh` to prove the DB; keep FileVault on.
 
-### 30. The builder is opaque and can't iterate (the 2026-07-25 pain)
-Her 2026-07-25 chat was dominated by the builder, not tool-firing: she couldn't see the built app, it
-came out "plain / awful", and every "make it richer / use tailwind / fix it" produced **narration**
-("I'm enhancing the web app…, would you like me to…") instead of an actual rebuild — because
-`build_web_app` regenerates from a description with **no memory of the existing app**, and on
-iteration turns it often wasn't even bound. Design changes: (a) an **`edit_web_app`/revise** tool that
-feeds the current project's code + the critique back to codegen so "make it better" actually iterates;
-(b) **quality** — default to Tailwind + a richer codegen system prompt so the first output isn't bare;
-(c) **visibility/feedback** — reliably return the URL, and add the "verify/validate the code" step she
-explicitly asked for (lint/validate the generated HTML); a screenshot/preview loop needs a headless
-browser (bigger, better on the mini); (d) **bind the edit tool on "fix/improve/enhance/use X"**
-phrasings so the model can act instead of narrate. This is Phase 4B steps 2-3 made concrete by real
-use. **Medium-large** (and materially easier with #29's bigger model).
+### 30. Builder — the visual feedback loop + a couple of rough edges (remaining after round 1)
+Round 1 (2026-07-26, resolved below) made the builder produce polished Tailwind+Alpine apps and
+iterate in place. What's left: (a) **the model can't SEE the render** — the true fix for "it looks
+bad" is a headless-browser screenshot fed to a vision pass so Mochi self-corrects; heavy dep, best on
+the mini (#29). (b) **`build_web_app` sometimes fires twice in one turn**, creating a duplicate
+project — harmless but untidy; a one-build-per-turn guard would fix it. (c) **React/Vite serving**
+for genuinely app-like builds (still deferred; Tailwind+Alpine single-file covers most needs). **Small
+to medium.**
 
 ---
 
 ## ✅ Resolved (kept — the lessons still apply)
+
+### Builder round 1: polished Tailwind+Alpine apps that iterate in place (2026-07-26)
+The 2026-07-25 chat was dominated by the builder failing: the one build was bare ("might as well be
+plain text"), and ~8 "make it richer / use tailwind / fix it" turns produced only narration ("I'm
+enhancing…, would you like me to…"), never a rebuild. Root causes (confirmed): codegen already ran on
+the strong hosted 120b, but its generic prompt never asked for Tailwind or a design system; and there
+was **no edit path** — `build_web_app` only regenerates from a fresh description, and on iteration
+turns the builder wasn't even bound, so the 7B couldn't act. Fixes: (a) a rich Tailwind Play CDN +
+Alpine.js design brief in `codegen.py`, and single-file HTML generated as **raw text, not
+structured-output JSON** (re-emitting a multi-KB file as an escaped JSON string truncated and 400'd —
+that was the first revise failure); (b) `revise_project` + an **`edit_web_app`** tool that feeds the
+current code back so edits iterate in place (same URL, served live); (c) `tool_select` binds the edit
+tool on "fix/improve/use tailwind/looks bad" phrasings AND **suppresses `build_web_app` on edit-intent**
+so the 7B edits instead of rebuilding from scratch; (d) a structural validator ("verify the code");
+(e) suppress `add_reminder` after "no reminders". Proven by `scripts/verify_builder.py` (5/5 real
+hosted model: build is Tailwind+Alpine and non-bare, edit fires and changes the file in place) +
+`tests/test_edit_web_app.py`. Remaining visual-feedback + rough edges tracked in #30.
 
 ### Multi-turn robustness, round 1: never show raw tool-call JSON (2026-07-25)
 Real multi-turn chat was "mixed / bad": raw ` ```json {"name":…}``` ` blocks streamed into the chat, a

@@ -77,6 +77,23 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 
 ## Current status
 
+**Builder, round 1 — polished Tailwind+Alpine apps that iterate in place.** The 2026-07-25 chat was
+dominated by the builder: the one build was bare, and ~8 "make it richer / use tailwind / fix it" turns
+produced only narration, never a rebuild. Root causes (confirmed): codegen already runs on the hosted
+120b but its prompt never asked for Tailwind or a design system, and there was **no edit path** —
+`build_web_app` only regenerates from a description, and on iteration turns the builder wasn't even
+bound, so the 7B narrated. Fixes: a rich **Tailwind Play CDN + Alpine.js** design brief in
+`app/builder/codegen.py`, with single-file HTML generated as **raw text, not structured-output JSON**
+(re-emitting a multi-KB file as an escaped JSON string truncated and 400'd — the first revise failure);
+`revise_project` + a new **`edit_web_app`** tool (`workspace.latest_project()`, `read_files`) that feeds
+the current code back so edits iterate **in place at the same URL** (the static server serves the dir
+live); `tool_select` binds the edit tool on "fix/improve/use tailwind/looks bad" and **suppresses
+`build_web_app` on edit-intent** so the 7B edits instead of rebuilding; a structural validator
+(`app/builder/validate.py`) for her "validate the code"; and `add_reminder` is suppressed after "no
+reminders". Gated by `scripts/verify_builder.py` (5/5 real hosted model) + `tests/test_edit_web_app.py`.
+Remaining (docs/14 #30): the model can't SEE the render (headless-browser + vision loop, best on the
+mini #29), and `build_web_app` sometimes fires twice a turn.
+
 **Multi-turn robustness, round 1 — never show raw tool-call JSON.** Real multi-turn chat was bad: raw
 ` ```json {"name":…}``` ` streamed into the chat, a factual question got dragged back into a prior task,
 and "make me a plan" built an opaque web app. Root cause (confirmed against code + the live selector):
