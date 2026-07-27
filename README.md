@@ -213,6 +213,10 @@ Two layers, because they catch different things:
   requires **every** sample to be clean, so a retry can't launder a violation. Each check prints its
   `hits/attempts`, so scraping by never looks like a clean pass. `scripts/verify_all.sh` runs the
   whole regression sequentially.
+- **`scripts/scorecard.py`** — a *report*, not a gate: it prints behavioral **rates** (tool-firing,
+  no-JSON-dump, honoring a negative constraint single-turn and across a rolling summary,
+  answers-vs-narrates) for the current `LOCAL_MODEL` + model profile, so a model swap is decided from
+  numbers rather than vibes. Deliberately kept out of `verify_all.sh` (real-model probes are slow).
 
 A **pre-push hook** (`.githooks/pre-push`, opt in with `./scripts/install_hooks.sh`) reproduces CI
 locally before every push: it runs `ruff` and the hermetic suite **with the embedding endpoint pointed

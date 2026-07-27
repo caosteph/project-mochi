@@ -77,6 +77,28 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 
 ## Current status
 
+**Mac-mini transition prep — model behavior is config-driven, and a scorecard measures a swap.** The
+biggest quality lever is a bigger local model (docs/14 #29), or sooner a free same-size one (#9). To
+make that swap a *measured config flip* rather than a rewrite, the 7B-shaped assumptions that were
+scattered in code are now a **model profile** in `app/config.py` (`model_temperature`,
+`model_max_output_tokens`), applied through the one router seam: `router.chat_model` defaults temp +
+`max_tokens` from the profile (and **omits `max_tokens` when None** so an unbounded call stays
+unbounded), `graph._base_llm` inherits the profile default (the tool-adherence knob — the tool-free
+expert/doc/codegen temps stay pinned by design), and `codegen.py` drops its `.bind(max_tokens=…)`
+hack for a first-class router param. **Behavior-neutral on the current 7B** (defaults resolve to the
+old values): proven by 11 router unit tests (identical construction), 335 hermetic tests, and
+`verify_scenarios` 16/16. New **`scripts/scorecard.py`** prints *rates* (not pass/fail) for the
+current `LOCAL_MODEL` + profile — tool-firing, no-JSON-dump, honoring a negative constraint
+single-turn **and across a rolling summary** (the real multi-turn failure the 3-turn gates miss; the
+probe verifies a summary actually formed, then measures — and on the 7B it already exposes the gap:
+constraint honored 100% single-turn but 0% across the summary). It's a **report, not a gate** (kept
+out of `verify_all.sh`; real-model probes are slow/stochastic). **Context length is deliberately NOT
+in the profile** (the OpenAI endpoint ignores per-request `num_ctx`) — it stays a Modelfile / serve
+flag, the one migration step that isn't a config flip. **Item 2 (flag-gating the 7B scaffolding —
+dynamic tool-select, the suppression heuristics, the repair crutch) is deferred**: its flags only pay
+off when there's a second model to A/B, so it lands when the #9 swap is actually attempted, not before
+(building it now would be the speculative scaffolding this project avoids). See `docs/14-future-work.md` #29.
+
 **Builder, round 1 — polished Tailwind+Alpine apps that iterate in place.** The 2026-07-25 chat was
 dominated by the builder: the one build was bare, and ~8 "make it richer / use tailwind / fix it" turns
 produced only narration, never a rebuild. Root causes (confirmed): codegen already runs on the hosted

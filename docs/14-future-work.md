@@ -271,11 +271,30 @@ remembering to run it locally. Ranked last because it's ~$1.4k against a $0 budg
 already delivered much of what it promised. Revisit after *Try a newer same-size local model* says
 whether a free model swap gets there. **Hardware + a migration pass.**
 
+**Prep already landed (2026-07-26), so the swap is measured, not a leap:**
+- **Model profile in config** (`model_temperature`, `model_max_output_tokens` in `app/config.py`,
+  applied via `router.chat_model`) — the 7B-shaped tuning that was hardcoded in `graph.py` /
+  `.bind()`-hacked in `codegen.py` is now one config block through the router seam. Swapping the model
+  is a config change, not a code edit. Behavior-neutral on the 7B (defaults = the old values). Context
+  length is intentionally NOT in the profile (the OpenAI endpoint ignores per-request `num_ctx`) — it
+  stays a Modelfile / vLLM `--max-model-len` step, the one part of the swap that isn't a config flip.
+- **`scripts/scorecard.py`** — rates (not pass/fail) for a given `LOCAL_MODEL` + profile: tool-firing,
+  no-JSON-dump, honoring a negative constraint single-turn AND across a rolling summary (crosses the
+  summarizer boundary the 3-turn gates miss), answers-vs-narrates. Run it on the current 7B to bank a
+  baseline, then again after the swap and diff the `--json`. This is how you'll *know* the new model is
+  better rather than guessing.
+- **Still deferred: flag-gating the scaffolding (was "item 2").** Making dynamic tool-select, the
+  suppression heuristics, and the repair crutch each a flag only pays off once there's a second model
+  to A/B them off against — so it lands when the swap (#9 first, then this) is actually attempted, not
+  speculatively now.
+
 **Tech-stack changes the migration would make (so the move is a checklist, not a redesign):**
 - **Bigger model.** A mini with 36-64GB unified memory runs a 32B-class local model (Qwen2.5-32B / a
   Qwen3 successor) at usable speed. That is the single biggest lever on the multi-turn failures below
   (correction-following, not-narrating, honoring negative constraints are all model-capability limits
-  on a 7B). Keep the OpenAI-compatible seam so it stays a base-URL/model-name swap.
+  on a 7B — the scorecard's across-summary probe already measures the last of these at 0% on the 7B).
+  Keep the OpenAI-compatible seam so it stays a base-URL/model-name swap: point `LOCAL_MODEL` at the
+  new model, retune the profile knobs, run `scorecard.py`, then A/B the (future) scaffolding flags.
 - **Serving engine.** Consider **vLLM** (or MLX-serve) instead of Ollama for higher throughput and, more
   importantly, first-class **guided/constrained decoding** (grammars, guaranteed tool-call JSON) — which
   would let the `toolcall_repair` guard become a backstop rather than a primary. Still behind the same
