@@ -77,6 +77,22 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 
 ## Current status
 
+**Egress floor is now categorical — one high-risk identifier refuses regardless of count.** Triaging a
+cloud security review (6 issues filed 2026-07-27, no PR), the one live gap was the egress sensitivity
+gate deciding purely on a flat redaction count (`is_too_personal(n_hits) → n_hits > redact_max_hits`),
+so a lone SSN or card (`n_hits=1`) passed to a hosted model / search provider. Fixed: `sanitize.py`
+splits a `_HIGH_RISK` category (SSN, card) with a pure `has_high_risk_pii(text)`, and
+`is_too_personal(text, n_hits)` now refuses on **either** a single high-risk match **or** the count
+threshold (run on the pre-redaction text). All three egress call sites pass the original text
+(`web_tools`, `expert_tools`, `telegram_commands`), and the audit surfaced a second gap: the primary
+`/ask` path (`_on_ask`) redacted but never gated at all — now gated like its followup. Deterministic /
+code-tier (no persona/tool/graph change), gated by `tests/test_sanitize.py` (+3) and 344 hermetic tests
+green. **Correction filed on the review:** issue #1 (un-framed `[signal]`/`[reminder]` titles) is not a
+live issue — `MessageLog` is write-only audit, never `SELECT`ed back into the checkpointer-based model
+context, so the described injection/replay path doesn't exist. Deferred from the same set: #4 (universal
+approval-preview; `/ask` needs a non-graph confirm flow), #2 (sender-trust nudge gate), #5 (local
+semantic classifier), #6 (provenance/taint egress — an epic). See `docs/04-constitution.md`.
+
 **Mac-mini transition prep — model behavior is config-driven, and a scorecard measures a swap.** The
 biggest quality lever is a bigger local model (docs/14 #29), or sooner a free same-size one (#9). To
 make that swap a *measured config flip* rather than a rewrite, the 7B-shaped assumptions that were

@@ -41,7 +41,29 @@ def test_clean_text_passes_untouched(monkeypatch):
 
 
 def test_is_too_personal_threshold(monkeypatch):
+    # Low-risk text (no high-risk identifier) stays purely count-based.
     monkeypatch.setattr(settings, "redact_max_hits", 4)
-    assert sanitize.is_too_personal(5) is True
-    assert sanitize.is_too_personal(4) is False
-    assert sanitize.is_too_personal(0) is False
+    clean = "just a generic question with some redacted names"
+    assert sanitize.is_too_personal(clean, 5) is True
+    assert sanitize.is_too_personal(clean, 4) is False
+    assert sanitize.is_too_personal(clean, 0) is False
+
+
+def test_single_high_risk_pii_refused(monkeypatch):
+    # A single high-risk identifier (SSN or card) must refuse regardless of count — even
+    # a lone one that would sit at/under the flat threshold. This is the categorical floor.
+    monkeypatch.setattr(settings, "redact_max_hits", 4)
+    assert sanitize.has_high_risk_pii("my ssn is 123-45-6789") is True
+    assert sanitize.has_high_risk_pii("card 4111 1111 1111 1111") is True
+    assert sanitize.has_high_risk_pii("what's the weather in Paris") is False
+    # count alone would allow these (n_hits == 1 <= 4); the category must refuse.
+    assert sanitize.is_too_personal("my ssn is 123-45-6789", 1) is True
+    assert sanitize.is_too_personal("card 4111 1111 1111 1111", 1) is True
+
+
+def test_low_risk_stays_count_based(monkeypatch):
+    # No high-risk identifier → decision is the flat count, unchanged from before.
+    monkeypatch.setattr(settings, "redact_max_hits", 4)
+    text = "recommend a gift for a coworker who likes coffee and hiking"
+    assert sanitize.is_too_personal(text, 4) is False
+    assert sanitize.is_too_personal(text, 5) is True

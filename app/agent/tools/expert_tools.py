@@ -44,7 +44,7 @@ def consult_expert(question: str) -> str:
     if not rate_limit.allow("consult_expert"):
         return "I've hit my hourly limit on external lookups — answer from your own knowledge."
     clean, hits = sanitize.redact(question)
-    if sanitize.is_too_personal(hits):
+    if sanitize.is_too_personal(question, hits):
         return _TOO_PERSONAL
     try:
         # temperature pinned (not the agent profile default): the expert is a different, tool-free

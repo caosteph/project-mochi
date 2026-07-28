@@ -54,8 +54,10 @@ table together). The scope:
 - **Still guaranteed in code:** *raw* personal data never leaves the machine. A deterministic scrubber
   (`app/agent/sanitize.py`) hard-redacts known identifiers (name/email/phone + PII regexes) from
   everything sent to the opt-in hosted model; `LOCAL_ONLY` or hosted-off means nothing is sent at all;
-  a PII-dense question is refused and answered locally (fails closed); the hosted model has no tools;
-  every hosted call is audited (`HostedConsult` → `/sent`), so nothing is silent.
+  a question is refused and answered locally (fails closed) when it is PII-dense (redaction count over
+  `redact_max_hits`) **or** contains a single high-risk identifier (SSN/card) — high-risk PII is
+  categorical, so one is enough regardless of count (`sanitize.is_too_personal`); the hosted model has
+  no tools; every hosted call is audited (`HostedConsult` → `/sent`), so nothing is silent.
 - **Best-effort, explicitly not guaranteed:** the local model producing a genuinely de-identified
   question. A non-PII-but-sensitive phrase it fails to generalize could reach the hosted provider.
   This is the residual risk Stephanie accepted in choosing the hybrid; it is bounded by the scrubber
@@ -72,8 +74,9 @@ Web search (`web_search`, `app/agent/tools/web_tools.py`) sends a query to a sea
 follows the **same** scrub/refuse/audit spine as the hosted consult, plus a human approval:
 
 - **Still guaranteed in code:** only a **scrubbed** query leaves — `sanitize.redact` strips known
-  identifiers + PII before the provider call; a PII-dense query is refused and answered locally (fails
-  closed); the query is **approved by Stephanie** (`require_approval("web_search", …)`) before it runs,
+  identifiers + PII before the provider call; a query is refused and answered locally (fails closed)
+  when it is PII-dense **or** carries a single high-risk identifier (SSN/card, categorical); the query
+  is **approved by Stephanie** (`require_approval("web_search", …)`) before it runs,
   so she previews exactly what leaves; every query is audited (`WebSearch` → `/sent`); results are
   **untrusted web content**, framed as data and read/synthesized by the **local** model.
 - **Deliberately independent of `LOCAL_ONLY`:** that flag governs the hosted *LLM* for personal data.

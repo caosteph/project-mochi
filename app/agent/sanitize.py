@@ -24,6 +24,12 @@ _CARD = re.compile(r"\b(?:\d[ -]?){13,16}\b")
 _PHONE = re.compile(r"(?<![\w.])\+?\d(?:[\d\s().-]{7,})\d(?![\w.])")
 _PII_REGEXES = (_EMAIL, _SSN, _CARD, _PHONE)
 
+# High-risk / catastrophic identifiers: a SINGLE one is enough to refuse egress, regardless
+# of the total redaction count (PII risk is categorical, not linear — one SSN outweighs five
+# first names). Scoped to the patterns we can match precisely; extension point for
+# bank/account + passport once low-false-positive regexes exist for them.
+_HIGH_RISK = (_SSN, _CARD)
+
 
 def _terms() -> list[str]:
     return [t.strip() for t in settings.redact_terms.split(",") if t.strip()]
@@ -44,7 +50,20 @@ def redact(text: str) -> tuple[str, int]:
     return out, hits
 
 
-def is_too_personal(n_hits: int) -> bool:
-    """True if a query required so many redactions it's clearly personal — a signal to
-    NOT delegate it to the hosted model and answer locally instead (fails closed)."""
-    return n_hits > settings.redact_max_hits
+def has_high_risk_pii(text: str) -> bool:
+    """True if `text` contains any high-risk identifier (SSN, credit card). Pure and
+    deterministic — no model. Run on the ORIGINAL text (before `redact`), since a scrubbed
+    copy has already had these replaced with the placeholder."""
+    return any(rx.search(text) for rx in _HIGH_RISK)
+
+
+def is_too_personal(text: str, n_hits: int) -> bool:
+    """True if a query is too sensitive to delegate to the hosted model — answer locally
+    instead (fails closed). Two independent triggers, either one refuses:
+
+    - a single HIGH-RISK identifier (SSN/card) is present, regardless of count — PII risk is
+      categorical, not linear; and
+    - the flat redaction count is high enough that the query is clearly personal.
+
+    `text` is the original (pre-redaction) query; `n_hits` is `redact()`'s count."""
+    return has_high_risk_pii(text) or n_hits > settings.redact_max_hits

@@ -62,7 +62,7 @@ def web_search(query: str) -> str:
     if not web_search_available():
         return _UNAVAILABLE
     clean, hits = sanitize.redact(query)
-    if sanitize.is_too_personal(hits):
+    if sanitize.is_too_personal(query, hits):
         return _TOO_PERSONAL
     # Approve BEFORE anything leaves; she sees the scrubbed query she's approving.
     if not require_approval("web_search", {"query": clean}):

@@ -76,12 +76,20 @@ class CommandsMixin:
         chat_id = update.effective_chat.id
         reply = update.message.reply_to_message
         quoted = (reply.text or "") if reply is not None else ""
+        went_hosted = router.hosted_available()
+        raw = f"[Context — a message I'm replying to]\n{quoted}\n\n{question}" if quoted else question
+        payload, hits = sanitize.redact(raw) if went_hosted else (raw, 0)
+        # Egress gate: refuse before anything leaves if the payload is too personal to send
+        # hosted (a single high-risk identifier, or a dense count). Only applies when hosted;
+        # the local path never leaves the machine. Mirrors _on_ask_followup / consult_expert.
+        if went_hosted and sanitize.is_too_personal(raw, hits):
+            await update.message.reply_text(
+                "That's too personal to send to the external model — ask me directly and I'll answer it locally."
+            )
+            return
         await ctx.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
         def run():
-            went_hosted = router.hosted_available()
-            raw = f"[Context — a message I'm replying to]\n{quoted}\n\n{question}" if quoted else question
-            payload, hits = sanitize.redact(raw) if went_hosted else (raw, 0)
             messages = [SystemMessage(_ASK_SYSTEM), HumanMessage(payload)]
             answer = router.chat_model(Sensitivity.NON_SENSITIVE, temperature=0.5).invoke(messages).content
             if went_hosted:  # only audit when something actually left the machine
@@ -111,7 +119,7 @@ class CommandsMixin:
             )
             return
         clean, hits = sanitize.redact(new_text)
-        if sanitize.is_too_personal(hits):
+        if sanitize.is_too_personal(new_text, hits):
             await ctx.bot.send_message(chat_id=chat_id, text="That follow-up's too personal to send externally — ask me directly.")
             return
         await ctx.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
