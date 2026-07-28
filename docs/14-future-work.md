@@ -314,8 +314,14 @@ iterate in place. What's left: (a) **the model can't SEE the render** — the tr
 bad" is a headless-browser screenshot fed to a vision pass so Mochi self-corrects; heavy dep, best on
 the mini (#29). (b) **`build_web_app` sometimes fires twice in one turn**, creating a duplicate
 project — harmless but untidy; a one-build-per-turn guard would fix it. (c) **React/Vite serving**
-for genuinely app-like builds (still deferred; Tailwind+Alpine single-file covers most needs). **Small
-to medium.**
+for genuinely app-like builds (still deferred; Tailwind+Alpine single-file covers most needs). (d)
+**Editing a large page doesn't fit the free-tier budget** (deferred by choice 2026-07-27): a revise
+sends the whole file and rewrites it (~2× the file in tokens), so a ~16KB+ page exceeds Groq's 8000
+TPM and now bails with a clear "too large" message (it no longer truncates or silently narrates). The
+free fix when revisited is **diff-based edits** — have the codegen model emit a small search-replace
+block instead of a full rewrite, so it reads the whole file (~4k tokens) but writes only ~200, landing
+well under the budget even for big pages (how Aider/etc. edit). Alternatives: a paid Groq tier (zero
+code) or the mini's local 32B (no per-minute limit). **Small to medium.**
 
 ---
 
