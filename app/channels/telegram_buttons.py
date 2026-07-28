@@ -50,6 +50,9 @@ class ButtonsMixin:
         if data.startswith("ans:"):
             await self._resume_choice(chat_id, ctx, query, int(data.split(":")[1]))
             return
+        if data.startswith("ask:"):
+            await self._on_ask_confirm(chat_id, ctx, query, data)
+            return
         # Otherwise it's a draft approve/reject: resume the paused graph.
         await query.answer()
         await query.edit_message_reply_markup(reply_markup=None)
@@ -84,6 +87,30 @@ class ButtonsMixin:
             await self._report_error(chat_id, ctx, error)
             return
         await self._deliver(chat_id, ctx, interrupt_payload, reply)
+
+    async def _on_ask_confirm(self, chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, query, data: str) -> None:
+        """Resolve a /ask Send/Cancel egress preview (data is "ask:send:<tok>" or "ask:cancel:<tok>").
+        On Send, run the already-scrubbed payload on the hosted path; on Cancel, nothing leaves. This
+        is the non-graph analogue of a draft approve/reject (that path resumes interrupt(); /ask can't,
+        since it never entered the graph)."""
+        _, action, tok = data.split(":")
+        pending = self._pending_ask.pop(tok, None)
+        await query.answer("Cancelled" if action == "cancel" else "Sending…")
+        if pending is None:
+            with contextlib.suppress(Exception):  # cosmetic; a failed edit must not drop the turn
+                await query.edit_message_text("That request expired — ask again.")
+            return
+        if action == "cancel":
+            with contextlib.suppress(Exception):
+                await query.edit_message_text("❌ Cancelled — nothing was sent.")
+            return
+        with contextlib.suppress(Exception):
+            await query.edit_message_text("✅ Sent to the external model.")
+        try:
+            await self._run_ask(chat_id, ctx, pending["payload"], pending["hits"],
+                                pending["user_text"], went_hosted=True)
+        except Exception as exc:
+            await self._report_error(chat_id, ctx, exc)
 
     async def _on_reminder_button(self, chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, data: str) -> None:
         # data is "rem:done:<id>" or "rem:snooze:<id>"

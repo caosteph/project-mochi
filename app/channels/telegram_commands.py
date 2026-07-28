@@ -12,15 +12,17 @@ follow-up that scrubs too much is refused outright. See rule 1 in CLAUDE.md.
 import asyncio
 import logging
 import os
+import uuid
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from sqlmodel import Session, select
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from app.agent import router, sanitize
 from app.agent.router import Sensitivity
+from app.channels.render import render_proposal
 from app.memory import store
 from app.memory.db import get_engine
 from app.memory.models import HostedConsult, WebSearch
@@ -36,6 +38,7 @@ _FACT_SNIP = 90    # truncate each fact's text in the /facts list
 _ASK_SYSTEM = "You are Mochi, Stephanie's helpful assistant. Answer the question clearly and concisely."
 
 _ASK_THREAD_CAP = 50  # how many /ask answers stay swipe-replyable (bounds in-memory growth)
+_PENDING_ASK_CAP = 20  # how many un-tapped /ask Send/Cancel previews to retain (bounds growth)
 
 
 class CommandsMixin:
@@ -87,8 +90,24 @@ class CommandsMixin:
                 "That's too personal to send to the external model — ask me directly and I'll answer it locally."
             )
             return
+        # Egress preview: if hosting scrubbed ANY identifier (but stayed under the refuse bar), show her
+        # exactly what will leave and wait for a Send/Cancel tap. A 0-hit generic query auto-sends (nothing
+        # identifiable leaves). This is the /ask analogue of web_search's require_approval — /ask runs
+        # outside the graph, so it can't use interrupt(); the tap resolves via _on_ask_confirm.
+        if went_hosted and hits > 0:
+            await self._confirm_ask(update, payload, hits)
+            return
         await ctx.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        try:
+            await self._run_ask(chat_id, ctx, payload, hits, update.message.text, went_hosted=went_hosted)
+        except Exception as exc:
+            await self._report_error(chat_id, ctx, exc)
 
+    async def _run_ask(self, chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, payload: str, hits: int,
+                       user_text: str, *, went_hosted: bool) -> None:
+        """Invoke the /ask generic path on an already-decided (scrubbed) payload, audit it if it left
+        the machine, render the answer, and remember it as a continuable thread. Shared by the direct
+        (auto-allowed) path and the Send-tap path (_on_ask_confirm)."""
         def run():
             messages = [SystemMessage(_ASK_SYSTEM), HumanMessage(payload)]
             answer = router.chat_model(Sensitivity.NON_SENSITIVE, temperature=0.5).invoke(messages).content
@@ -98,14 +117,28 @@ class CommandsMixin:
                     session.commit()
             return answer, messages
 
-        try:
-            answer, messages = await asyncio.to_thread(run)
-        except Exception as exc:
-            await self._report_error(chat_id, ctx, exc)
-            return
+        answer, messages = await asyncio.to_thread(run)
         sent = await self._send_rich(ctx.bot, chat_id, answer)
         self._remember_ask(sent, [*messages, AIMessage(content=answer or "")])
-        await self._log_turn(chat_id, update.message.text, answer or "")
+        await self._log_turn(chat_id, user_text, answer or "")
+
+    async def _confirm_ask(self, update: Update, payload: str, hits: int) -> None:
+        """Stash a scrubbed /ask payload under a token and show a Send/Cancel preview of exactly what
+        would leave the machine. Nothing is sent until she taps Send (resolved by _on_ask_confirm)."""
+        tok = uuid.uuid4().hex[:8]
+        self._pending_ask[tok] = {"payload": payload, "hits": hits, "user_text": update.message.text}
+        if len(self._pending_ask) > _PENDING_ASK_CAP:
+            for stale in list(self._pending_ask)[:-_PENDING_ASK_CAP]:
+                del self._pending_ask[stale]
+        keyboard = InlineKeyboardMarkup(
+            [[
+                InlineKeyboardButton("✅ Send", callback_data=f"ask:send:{tok}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"ask:cancel:{tok}"),
+            ]]
+        )
+        await update.message.reply_text(
+            render_proposal("consult_expert", {"question": payload}), reply_markup=keyboard
+        )
 
     async def _on_ask_followup(
         self, chat_id: int, ctx: ContextTypes.DEFAULT_TYPE, history: list, new_text: str

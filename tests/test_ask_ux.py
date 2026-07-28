@@ -12,7 +12,7 @@ from sqlmodel import Session, select
 from app.agent import router
 from app.config import settings
 from app.memory.models import HostedConsult
-from tests.support import FakeBot, FakeMessage, FakeModel, make_update
+from tests.support import FakeBot, FakeMessage, FakeModel, FakeQuery, make_update
 
 
 def _update(text, reply_to_id=None, reply_text=None):
@@ -145,10 +145,29 @@ def test_followup_refuses_single_high_risk(channel, engine, monkeypatch):
         assert list(s.exec(select(HostedConsult))) == []
 
 
-# --- /ask while replying includes scrubbed quoted context -------------------
+# --- egress preview: a scrubbed /ask payload waits for a Send/Cancel tap (#4) ---
 
 
-def test_ask_while_replying_includes_scrubbed_context(channel, ctx, engine, monkeypatch):
+def test_ask_clean_query_auto_sends(channel, ctx, engine, monkeypatch):
+    # A 0-redaction generic query has nothing identifiable to preview → it sends immediately (and is
+    # audited). This keeps the fast path for the common case; only redacted payloads pause.
+    monkeypatch.setattr(router, "hosted_available", lambda: True)
+    monkeypatch.setattr(settings, "redact_terms", "")
+    fake = FakeModel("42")
+    monkeypatch.setattr(router, "chat_model", lambda *a, **k: fake)
+
+    update = make_update(message=FakeMessage("/ask what is the capital of France"),
+                         chat_id=settings.telegram_chat_id)
+    asyncio.run(channel._on_ask(update, ctx))
+
+    assert fake.received is not None and channel._pending_ask == {}
+    with Session(engine) as s:
+        assert len(list(s.exec(select(HostedConsult)))) == 1
+
+
+def test_ask_with_redaction_previews_then_sends_scrubbed(channel, ctx, engine, monkeypatch):
+    # A query whose context carries PII (an email) is scrubbed but stays under the refuse bar → it must
+    # PREVIEW (Send/Cancel), send nothing until the tap, and on Send deliver the SCRUBBED payload.
     monkeypatch.setattr(router, "hosted_available", lambda: True)
     monkeypatch.setattr(settings, "redact_terms", "")
     fake = FakeModel("answer")
@@ -157,6 +176,42 @@ def test_ask_while_replying_includes_scrubbed_context(channel, ctx, engine, monk
     update = _update("/ask what does this mean?", reply_to_id=7, reply_text="my email is x@y.com and I owe $50")
     asyncio.run(channel._on_ask(update, ctx))
 
+    # preview shown, model NOT called yet, nothing audited
+    assert fake.received is None and len(channel._pending_ask) == 1
+    kb = update.message.reply_markups[-1]
+    labels = [b.text for row in kb.inline_keyboard for b in row]
+    cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "✅ Send" in labels and any(c.startswith("ask:send:") for c in cbs)
+    with Session(engine) as s:
+        assert list(s.exec(select(HostedConsult))) == []
+
+    # tap Send → the scrubbed context reaches the model and is audited
+    tok = next(iter(channel._pending_ask))
+    data = f"ask:send:{tok}"
+    asyncio.run(channel._on_ask_confirm(settings.telegram_chat_id, ctx, FakeQuery(data), data))
+
     sent = fake.received[-1].content
-    assert "what does this mean?" in sent  # the question
-    assert "Context" in sent and "x@y.com" not in sent  # quoted context included but scrubbed
+    assert "what does this mean?" in sent and "Context" in sent and "x@y.com" not in sent
+    assert channel._pending_ask == {}
+    with Session(engine) as s:
+        assert len(list(s.exec(select(HostedConsult)))) == 1
+
+
+def test_ask_preview_cancel_sends_nothing(channel, ctx, engine, monkeypatch):
+    monkeypatch.setattr(router, "hosted_available", lambda: True)
+    monkeypatch.setattr(settings, "redact_terms", "")
+    fake = FakeModel("answer")
+    monkeypatch.setattr(router, "chat_model", lambda *a, **k: fake)
+
+    update = _update("/ask what does this mean?", reply_to_id=7, reply_text="reach me at x@y.com")
+    asyncio.run(channel._on_ask(update, ctx))
+    tok = next(iter(channel._pending_ask))
+
+    data = f"ask:cancel:{tok}"
+    q = FakeQuery(data)
+    asyncio.run(channel._on_ask_confirm(settings.telegram_chat_id, ctx, q, data))
+
+    assert fake.received is None and channel._pending_ask == {}  # never sent, token cleared
+    assert "cancelled" in (q.edited or "").lower()
+    with Session(engine) as s:
+        assert list(s.exec(select(HostedConsult))) == []

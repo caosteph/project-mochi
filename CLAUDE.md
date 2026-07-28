@@ -95,9 +95,15 @@ branch** of `has_high_risk_pii` so a benign 16-digit tracking/order number no lo
 (Luhn never drops a real card, so the floor is unweakened). 359 hermetic tests green.
 **Correction filed on the review:** issue #1 (un-framed `[signal]`/`[reminder]` titles) is not a
 live issue — `MessageLog` is write-only audit, never `SELECT`ed back into the checkpointer-based model
-context, so the described injection/replay path doesn't exist. Deferred from the same set: #4 (universal
-approval-preview; `/ask` needs a non-graph confirm flow), #2 (sender-trust nudge gate), #5 (local
-semantic classifier), #6 (provenance/taint egress — an epic). See `docs/04-constitution.md`.
+context, so the described injection/replay path doesn't exist. **Then #4 (universal approval-preview):**
+the scrubbed-payload preview Stephanie approves before egress was `web_search`-only; now `consult_expert`
+gets the same in-graph `require_approval("consult_expert", …)` (rate-limit moved *after* approval so the
+interrupt re-run doesn't double-count, matching `web_search`), and `/ask` — which runs outside the graph
+so `interrupt()` can't reach it — gets a Send/Cancel tap whenever it scrubbed anything (`_confirm_ask` +
+`_on_ask_confirm` + a new `ask:` callback prefix), while a 0-hit generic `/ask` still auto-sends. Gated by
+`tests/test_expert_approval.py` (real-graph pause/reject/approve) + new `/ask` preview tests;
+`verify_scenarios` 16/16 (no firing regression). Deferred from the same set: #2 (sender-trust nudge gate),
+#5 (local semantic classifier), #6 (provenance/taint egress — an epic). See `docs/04-constitution.md`.
 
 **Mac-mini transition prep — model behavior is config-driven, and a scorecard measures a swap.** The
 biggest quality lever is a bigger local model (docs/14 #29), or sooner a free same-size one (#9). To

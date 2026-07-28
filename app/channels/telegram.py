@@ -79,6 +79,9 @@ class TelegramChannel(StreamingMixin, CommandsMixin, ButtonsMixin, Channel):
         # produced it, so a swipe-reply to that answer can continue the expert thread.
         # In-memory (resets on restart); capped so it can't grow unbounded.
         self._ask_threads: dict[int, list] = {}
+        # token → a pending /ask that scrubbed some PII and is waiting for her Send/Cancel tap
+        # before it leaves the machine (the non-graph egress preview; see _confirm_ask). Capped.
+        self._pending_ask: dict[str, dict] = {}
 
     def _authorized(self, update: Update) -> bool:
         chat = update.effective_chat

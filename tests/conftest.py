@@ -116,6 +116,7 @@ def channel(monkeypatch):
 
     ch = telegram.TelegramChannel.__new__(telegram.TelegramChannel)
     ch._ask_threads = {}
+    ch._pending_ask = {}
     monkeypatch.setattr(ch, "_authorized", lambda _update: True)
     return ch
 

@@ -57,7 +57,10 @@ table together). The scope:
   a question is refused and answered locally (fails closed) when it is PII-dense (redaction count over
   `redact_max_hits`) **or** contains a single high-risk identifier (SSN/card) — high-risk PII is
   categorical, so one is enough regardless of count (`sanitize.is_too_personal`); the hosted model has
-  no tools; every hosted call is audited (`HostedConsult` → `/sent`), so nothing is silent.
+  no tools; **Stephanie previews and approves the exact scrubbed payload before it leaves** — via
+  `require_approval("consult_expert", …)` in-graph, and a Send/Cancel tap on the (non-graph) `/ask`
+  path when it scrubbed anything (a 0-hit generic `/ask` auto-sends); every hosted call is audited
+  (`HostedConsult` → `/sent`), so nothing is silent.
 - **Best-effort, explicitly not guaranteed:** the local model producing a genuinely de-identified
   question. A non-PII-but-sensitive phrase it fails to generalize could reach the hosted provider.
   This is the residual risk Stephanie accepted in choosing the hybrid; it is bounded by the scrubber

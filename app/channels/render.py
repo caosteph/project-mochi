@@ -56,6 +56,11 @@ def render_proposal(action: str, details: dict) -> str:
             "🔎 Search the web for (this scrubbed query will leave your machine):\n\n"
             f"{details.get('query')}"
         )
+    if action == "consult_expert":
+        return (
+            "🧭 Ask a bigger external model (this scrubbed question will leave your machine):\n\n"
+            f"{details.get('question')}"
+        )
     # Default / create_draft: a draft to approve (never auto-sent).
     return (
         "📝 Draft to approve (it will not be sent):\n\n"

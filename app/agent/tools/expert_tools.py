@@ -19,6 +19,7 @@ from langchain_core.tools import tool
 from sqlmodel import Session
 
 from app.agent import rate_limit, router, sanitize
+from app.agent.confirm import require_approval
 from app.agent.router import Sensitivity
 from app.memory.db import get_engine
 from app.memory.models import HostedConsult
@@ -41,11 +42,16 @@ def consult_expert(question: str) -> str:
     adapt to Stephanie's real situation. If it's unavailable, just answer yourself."""
     if not router.hosted_available():
         return _UNAVAILABLE
-    if not rate_limit.allow("consult_expert"):
-        return "I've hit my hourly limit on external lookups — answer from your own knowledge."
     clean, hits = sanitize.redact(question)
     if sanitize.is_too_personal(question, hits):
         return _TOO_PERSONAL
+    # Approve BEFORE anything leaves; she previews exactly the scrubbed question (mirrors web_search).
+    if not require_approval("consult_expert", {"question": clean}):
+        return "Consult cancelled — nothing was sent."
+    # Cap AFTER approval so the interrupt re-run (which replays this node from the top) doesn't
+    # double-count — same reasoning as web_search.
+    if not rate_limit.allow("consult_expert"):
+        return "I've hit my hourly limit on external lookups — answer from your own knowledge."
     try:
         # temperature pinned (not the agent profile default): the expert is a different, tool-free
         # hosted model answering a de-identified question — not the local tool-calling path.

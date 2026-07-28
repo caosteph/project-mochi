@@ -112,15 +112,21 @@ class FakeQuery:
 
 
 class FakeMessage:
-    """An incoming message with a `reply_text` that records replies (for command-handler tests)."""
+    """An incoming message with a `reply_text` that records replies (for command-handler tests).
+
+    `.replies` keeps the reply *texts* (the common assertion); `.reply_markups` keeps the parallel
+    `reply_markup` kwarg so a test can assert an inline keyboard was attached (e.g. the /ask
+    Send/Cancel preview)."""
 
     def __init__(self, text="", reply_to_message=None):
         self.text = text
         self.reply_to_message = reply_to_message
         self.replies: list[str] = []
+        self.reply_markups: list = []
 
-    async def reply_text(self, text, **kw):
+    async def reply_text(self, text, reply_markup=None, **kw):
         self.replies.append(text)
+        self.reply_markups.append(reply_markup)
 
 
 class FakeModel:

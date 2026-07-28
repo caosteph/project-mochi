@@ -37,6 +37,10 @@ def test_scrubs_and_audits_when_hosted_on(engine, monkeypatch):
     monkeypatch.setattr(router, "hosted_available", lambda: True)
     monkeypatch.setattr(settings, "redact_terms", "Stephanie")
     monkeypatch.setattr(settings, "redact_max_hits", 4)
+    # consult_expert now pauses for approval (require_approval → interrupt()); invoking the tool
+    # directly (outside a graph) can't run interrupt(), so stub approval True. The pause/resume
+    # behavior itself is covered by the real-graph tests in test_expert_approval.py.
+    monkeypatch.setattr("app.agent.tools.expert_tools.require_approval", lambda *a, **k: True)
     fake = FakeModel("Here is the expert view.")
     monkeypatch.setattr(router, "chat_model", lambda *a, **k: fake)
 
