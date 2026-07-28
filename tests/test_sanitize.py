@@ -2,6 +2,8 @@
 terms + structural PII, and the too-personal fail-closed threshold.
 """
 
+import pytest
+
 from app.agent import sanitize
 from app.config import settings
 
@@ -67,3 +69,53 @@ def test_low_risk_stays_count_based(monkeypatch):
     text = "recommend a gift for a coworker who likes coffee and hiking"
     assert sanitize.is_too_personal(text, 4) is False
     assert sanitize.is_too_personal(text, 5) is True
+
+
+def test_high_risk_detected_on_original_not_scrubbed(monkeypatch):
+    # The categorical gate MUST run on the pre-redaction text: after redact() the SSN is gone,
+    # so a caller that passed the scrubbed copy would silently disable the high-risk refusal.
+    # This test documents and locks that invariant (the wrapper-seam tests enforce it per-caller).
+    monkeypatch.setattr(settings, "redact_terms", "")
+    original = "my ssn is 123-45-6789"
+    scrubbed, _ = sanitize.redact(original)
+    assert sanitize.has_high_risk_pii(original) is True
+    assert sanitize.has_high_risk_pii(scrubbed) is False
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "4111111111111111",       # Visa test number, no separators
+        "4111 1111 1111 1111",    # spaced
+        "4111-1111-1111-1111",    # dashed
+        "378282246310005",        # Amex (15 digits)
+        "6011111111111117",       # Discover
+    ],
+)
+def test_card_luhn_valid_is_high_risk(raw):
+    assert sanitize.has_high_risk_pii(f"my card is {raw}") is True
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "4111111111111112",   # a real card's digits with a broken check digit → fails Luhn
+        "1234567890123456",   # a benign 16-digit run (e.g. an order/tracking number) → fails Luhn
+    ],
+)
+def test_non_card_digit_run_not_high_risk(raw):
+    # Luhn drops these false positives so a benign long number no longer hard-refuses egress
+    # (it falls back to the count path). Intended precision gain, not a hole in the floor.
+    assert sanitize.has_high_risk_pii(f"reference number {raw}") is False
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("ssn 123-45-6789", True),      # dashed SSN — caught
+        ("ssn 123456789", False),       # KNOWN LIMITATION: bare 9-digit SSN not caught (regex needs dashes)
+        ("what is the weather in Paris", False),
+    ],
+)
+def test_high_risk_formats(raw, expected):
+    assert sanitize.has_high_risk_pii(raw) is expected

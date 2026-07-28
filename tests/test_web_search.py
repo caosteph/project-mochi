@@ -80,6 +80,26 @@ def test_pii_dense_query_is_refused_and_nothing_leaves(enabled, engine, monkeypa
         assert list(s.exec(select(WebSearch))) == []
 
 
+def test_single_high_risk_identifier_leaks_nothing(enabled, engine, monkeypatch):
+    # One card number at the DEFAULT threshold (count=1) must refuse categorically — the provider
+    # is never called, no audit row is written, and we never even reach the approval gate. Guards
+    # the pre-redaction invariant: passing the scrubbed query here would let it through.
+    called = {"n": 0}
+    monkeypatch.setattr(search_api, "search", lambda q, **k: called.update(n=called["n"] + 1) or _results())
+
+    def _no_approval(*a, **k):
+        raise AssertionError("must refuse before reaching the approval gate")
+
+    monkeypatch.setattr(web_tools, "require_approval", _no_approval)
+
+    out = web_search.invoke({"query": "charge my card 4111 1111 1111 1111"})
+
+    assert "too personal" in out.lower()
+    assert called["n"] == 0
+    with Session(engine) as s:
+        assert list(s.exec(select(WebSearch))) == []
+
+
 def test_unavailable_answers_locally(monkeypatch):
     monkeypatch.setattr("app.config.settings.web_search_enabled", False)
     out = web_search.invoke({"query": "weather in Paris"})

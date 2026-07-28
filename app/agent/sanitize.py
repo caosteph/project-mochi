@@ -24,11 +24,10 @@ _CARD = re.compile(r"\b(?:\d[ -]?){13,16}\b")
 _PHONE = re.compile(r"(?<![\w.])\+?\d(?:[\d\s().-]{7,})\d(?![\w.])")
 _PII_REGEXES = (_EMAIL, _SSN, _CARD, _PHONE)
 
-# High-risk / catastrophic identifiers: a SINGLE one is enough to refuse egress, regardless
-# of the total redaction count (PII risk is categorical, not linear — one SSN outweighs five
-# first names). Scoped to the patterns we can match precisely; extension point for
-# bank/account + passport once low-false-positive regexes exist for them.
-_HIGH_RISK = (_SSN, _CARD)
+# High-risk / catastrophic identifiers (SSN, credit card): a SINGLE one is enough to refuse
+# egress regardless of the total redaction count — PII risk is categorical, not linear (one SSN
+# outweighs five first names). Detected per-category in has_high_risk_pii() below (SSN by format,
+# card by Luhn). Extension point for bank/account + passport once low-false-positive regexes exist.
 
 
 def _terms() -> list[str]:
@@ -50,11 +49,29 @@ def redact(text: str) -> tuple[str, int]:
     return out, hits
 
 
+def _luhn(digits: str) -> bool:
+    """Luhn checksum. A real credit-card number passes by construction, so gating the card
+    pattern on this only ever removes FALSE positives (random 13-16 digit runs like order or
+    tracking numbers) — it never drops a genuine card, so the egress floor is unweakened."""
+    total = 0
+    for i, ch in enumerate(reversed(digits)):
+        d = int(ch)
+        if i % 2 == 1:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return bool(digits) and total % 10 == 0
+
+
 def has_high_risk_pii(text: str) -> bool:
-    """True if `text` contains any high-risk identifier (SSN, credit card). Pure and
-    deterministic — no model. Run on the ORIGINAL text (before `redact`), since a scrubbed
-    copy has already had these replaced with the placeholder."""
-    return any(rx.search(text) for rx in _HIGH_RISK)
+    """True if `text` contains any high-risk identifier: an SSN (by format), or a credit-card
+    number whose digits pass the Luhn checksum. Pure and deterministic — no model. Run on the
+    ORIGINAL text (before `redact`), since a scrubbed copy has already had these replaced with
+    the placeholder (which is exactly why callers must pass the original — see is_too_personal)."""
+    if _SSN.search(text):
+        return True
+    return any(_luhn(re.sub(r"\D", "", m.group())) for m in _CARD.finditer(text))
 
 
 def is_too_personal(text: str, n_hits: int) -> bool:

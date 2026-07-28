@@ -81,13 +81,19 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 cloud security review (6 issues filed 2026-07-27, no PR), the one live gap was the egress sensitivity
 gate deciding purely on a flat redaction count (`is_too_personal(n_hits) → n_hits > redact_max_hits`),
 so a lone SSN or card (`n_hits=1`) passed to a hosted model / search provider. Fixed: `sanitize.py`
-splits a `_HIGH_RISK` category (SSN, card) with a pure `has_high_risk_pii(text)`, and
+adds a pure `has_high_risk_pii(text)` (SSN by format, card by Luhn), and
 `is_too_personal(text, n_hits)` now refuses on **either** a single high-risk match **or** the count
 threshold (run on the pre-redaction text). All three egress call sites pass the original text
 (`web_tools`, `expert_tools`, `telegram_commands`), and the audit surfaced a second gap: the primary
 `/ask` path (`_on_ask`) redacted but never gated at all — now gated like its followup. Deterministic /
-code-tier (no persona/tool/graph change), gated by `tests/test_sanitize.py` (+3) and 344 hermetic tests
-green. **Correction filed on the review:** issue #1 (un-framed `[signal]`/`[reminder]` titles) is not a
+code-tier (no persona/tool/graph change). **Then hardened the tests** (the pure-function tests couldn't
+catch a caller passing the *scrubbed* copy, which silently disables the categorical gate): added
+**wrapper-seam refusal tests** on all four egress paths (`consult_expert`/`web_search`/`_on_ask`/
+`_on_ask_followup` — model/provider never invoked, nothing audited; each fails if the caller regresses
+to scrubbed text, proven by a mutation check), an invariant guard test, and **Luhn-validated the card
+branch** of `has_high_risk_pii` so a benign 16-digit tracking/order number no longer hard-refuses egress
+(Luhn never drops a real card, so the floor is unweakened). 359 hermetic tests green.
+**Correction filed on the review:** issue #1 (un-framed `[signal]`/`[reminder]` titles) is not a
 live issue — `MessageLog` is write-only audit, never `SELECT`ed back into the checkpointer-based model
 context, so the described injection/replay path doesn't exist. Deferred from the same set: #4 (universal
 approval-preview; `/ask` needs a non-graph confirm flow), #2 (sender-trust nudge gate), #5 (local

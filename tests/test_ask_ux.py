@@ -111,6 +111,40 @@ def test_followup_refuses_when_hosted_off(channel, monkeypatch):
     assert bot.texts and "off right now" in bot.texts[0].lower()
 
 
+# --- egress gate: a single high-risk identifier refuses, nothing leaves ------
+
+
+def test_ask_refuses_single_high_risk(channel, ctx, engine, monkeypatch):
+    # The primary /ask path gained a too-personal gate (previously it redacted but never gated).
+    # A lone SSN must refuse before the model runs — model never invoked, nothing audited.
+    monkeypatch.setattr(router, "hosted_available", lambda: True)
+    fake = FakeModel("should not run")
+    monkeypatch.setattr(router, "chat_model", lambda *a, **k: fake)
+
+    update = make_update(message=FakeMessage("/ask my ssn is 123-45-6789"),
+                         chat_id=settings.telegram_chat_id)
+    asyncio.run(channel._on_ask(update, ctx))
+
+    assert any("too personal" in r.lower() for r in update.message.replies)
+    assert fake.received is None  # model never invoked (gate returns before run())
+    with Session(engine) as s:
+        assert list(s.exec(select(HostedConsult))) == []
+
+
+def test_followup_refuses_single_high_risk(channel, engine, monkeypatch):
+    monkeypatch.setattr(router, "hosted_available", lambda: True)
+    fake = FakeModel("should not run")
+    monkeypatch.setattr(router, "chat_model", lambda *a, **k: fake)
+
+    bot = FakeBot()
+    asyncio.run(channel._on_ask_followup(1, SimpleNamespace(bot=bot), [], "my ssn is 123-45-6789"))
+
+    assert bot.texts and "too personal" in bot.texts[-1].lower()
+    assert fake.received is None
+    with Session(engine) as s:
+        assert list(s.exec(select(HostedConsult))) == []
+
+
 # --- /ask while replying includes scrubbed quoted context -------------------
 
 

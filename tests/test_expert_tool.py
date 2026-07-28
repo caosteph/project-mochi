@@ -68,6 +68,27 @@ def test_refuses_too_personal(engine, monkeypatch):
     assert calls["n"] == 0 and _rows(engine) == []  # never sent, never audited
 
 
+def test_single_high_risk_identifier_refused(engine, monkeypatch):
+    # A lone SSN/card at the DEFAULT threshold (count=1 <= 4) must refuse categorically, and
+    # nothing may be sent. This also guards the pre-redaction invariant: if consult_expert passed
+    # the scrubbed `clean` instead of `question`, the identifier would be gone, the model WOULD run
+    # (calls==1), and this test would go red.
+    monkeypatch.setattr(router, "hosted_available", lambda: True)
+    monkeypatch.setattr(settings, "redact_terms", "")
+    monkeypatch.setattr(settings, "redact_max_hits", 4)
+    calls = {"n": 0}
+
+    def _cm(*a, **k):
+        calls["n"] += 1
+        return FakeModel()
+
+    monkeypatch.setattr(router, "chat_model", _cm)
+    for q in ("my card is 4111 1111 1111 1111", "my ssn is 123-45-6789"):
+        out = consult_expert.invoke({"question": q})
+        assert "too personal" in out.lower()
+    assert calls["n"] == 0 and _rows(engine) == []
+
+
 def test_ask_path_builds_generic_only_prompt(channel, ctx, fake_bot, monkeypatch):
     monkeypatch.setattr(router, "hosted_available", lambda: False)  # local path, no audit
     fake = FakeModel("4")
