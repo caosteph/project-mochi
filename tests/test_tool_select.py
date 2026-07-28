@@ -46,6 +46,24 @@ def test_failsafe_returns_core_plus_keywords(monkeypatch):
     assert "recall" in names and "build_web_app" in names  # no crash, still routed
 
 
+def test_edit_routing_catches_the_its_broken_family(monkeypatch):
+    # From her real transcript: "the open hide details is messed up" narrated instead of editing
+    # because nothing bound edit_web_app. The complaint family must now route to the edit tool.
+    _fail_embed(monkeypatch)
+    assert "edit_web_app" in _names("the open hide details is messed up")  # her exact words
+    for msg in ("the button is broken", "the toggle isn't working", "the header looks wrong",
+                "the layout is cut off", "the nav is overlapping", "the form doesn't work"):
+        assert "edit_web_app" in _names(msg), msg
+
+
+def test_edit_complaint_does_not_hijack_a_fresh_build_or_reminder(monkeypatch):
+    _fail_embed(monkeypatch)
+    build = _names("build me a landing page for a coffee shop")
+    assert "build_web_app" in build and "edit_web_app" not in build  # a first build is not an edit
+    # a non-app complaint keeps its real tool bound (edit being union'd in never displaces it)
+    assert "add_reminder" in _names("my dentist reminder is messed up")
+
+
 def test_embedding_path_runs_and_caps(monkeypatch):
     # embedder available (constant vector) → path executes, subset still capped + has core
     monkeypatch.setattr(tool_select, "embed_local", lambda _: [1.0, 0.0, 0.0])

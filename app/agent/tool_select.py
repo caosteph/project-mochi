@@ -95,7 +95,14 @@ REGEX_BOOSTS: dict[str, re.Pattern] = {
         r"\b(fix|improve|redesign|polish|enhance|upgrade|restyle|revamp)\b[^.?!]{0,30}"
         r"\b(it|this|that|the (web ?)?app|the site|the page|the design|the layout|the ui)\b"
         r"|\bmake it (look )?(better|nicer|richer|prettier|cleaner|more modern|pop)\b"
-        r"|\buse tailwind\b",
+        r"|\buse tailwind\b"
+        # The "it's broken" complaint family — a natural way to ask for an edit that the verb-first
+        # patterns above miss. Measured from her real transcript: "the open hide details is messed up"
+        # narrated instead of editing, because nothing bound edit_web_app. Anchored on the breakage
+        # phrase (not a bare verb) to limit false matches; a spurious bind is cheap (edit_web_app
+        # defaults to the latest project and is union'd in, so it never displaces the right tool).
+        r"|\b(messed up|not working|isn'?t working|doesn'?t work|won'?t work|is broken|is busted"
+        r"|looks? (wrong|off|weird|broken)|cut ?off|overlapping|misaligned|out of place|glitch\w*)\b",
         re.I,
     ),
 }
