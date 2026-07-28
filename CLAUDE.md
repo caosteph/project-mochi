@@ -114,7 +114,11 @@ live); `tool_select` binds the edit tool on "fix/improve/use tailwind/looks bad"
 (`app/builder/validate.py`) for her "validate the code"; and `add_reminder` is suppressed after "no
 reminders". Gated by `scripts/verify_builder.py` (5/5 real hosted model) + `tests/test_edit_web_app.py`.
 Remaining (docs/14 #30): the model can't SEE the render (headless-browser + vision loop, best on the
-mini #29), and `build_web_app` sometimes fires twice a turn.
+mini #29), and `build_web_app` sometimes fires twice a turn. **Fixed 2026-07-27:** hosted builds were
+413'ing on Groq's free tier (an 8000-token completion cap == the whole 8000 TPM budget); the
+completion cap is now sized dynamically to fit the provider budget (`builder_max_output_tokens` /
+`builder_tpm_budget` in config, `_effective_max_tokens` in `app/builder/codegen.py`), failing with a
+clear message when a request genuinely can't fit. See `docs/14-future-work.md` Resolved.
 
 **Multi-turn robustness, round 1 — never show raw tool-call JSON.** Real multi-turn chat was bad: raw
 ` ```json {"name":…}``` ` streamed into the chat, a factual question got dragged back into a prior task,

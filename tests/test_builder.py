@@ -81,6 +81,56 @@ def test_generate_project_uses_injected_generator():
     assert len(proj.files) == 1 and proj.files[0].path == "index.html"
 
 
+# --- TPM-budget sizing (the Groq free-tier 413 fix) ----------------------------
+
+def test_effective_max_tokens_fits_a_normal_build(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "builder_tpm_budget", 8000)
+    monkeypatch.setattr(settings, "builder_max_output_tokens", 6000)
+    # A small build prompt leaves room for the full cap; crucially prompt + cap stays under budget
+    # (the old flat 8000 cap made every request 413 because 8000 + prompt > 8000 TPM).
+    cap = codegen._effective_max_tokens(prompt_chars=1500)
+    assert cap == 6000
+    assert 1500 // 3 + cap < 8000
+
+
+def test_effective_max_tokens_bails_when_prompt_too_big(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "builder_tpm_budget", 8000)
+    # A huge existing file (revise path) can't leave room for a usable completion → clear error,
+    # not a provider 413.
+    with pytest.raises(codegen.BuilderBudgetError):
+        codegen._effective_max_tokens(prompt_chars=24_000)
+
+
+def test_effective_max_tokens_bails_rather_than_truncate_a_revise(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "builder_tpm_budget", 8000)
+    monkeypatch.setattr(settings, "builder_max_output_tokens", 6000)
+    # Revise of a ~16KB page (like her coffee-shop build): the prompt alone fits, but there's no room
+    # left to REPRODUCE the whole file, so it must bail — not return a small cap that truncates the page.
+    with pytest.raises(codegen.BuilderBudgetError):
+        codegen._effective_max_tokens(prompt_chars=17_000, min_output=4_000)
+    # A small app leaves room for a full rewrite → returns a cap big enough to reproduce it.
+    assert codegen._effective_max_tokens(prompt_chars=7_000, min_output=1_500) >= 1_500
+
+
+def test_effective_max_tokens_no_clamp_when_budget_disabled(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "builder_tpm_budget", 0)  # paid tier / no per-minute limit
+    monkeypatch.setattr(settings, "builder_max_output_tokens", 6000)
+    assert codegen._effective_max_tokens(prompt_chars=24_000) == 6000
+
+
+def test_build_web_app_reports_budget_error_clearly(tmp_path, monkeypatch):
+    # When codegen can't fit the tier, build_web_app returns a readable message, never a stack trace.
+    def boom(description, framework=False):
+        raise codegen.BuilderBudgetError("it's too large for the current model's free-tier rate limit")
+    monkeypatch.setattr(builder_tools.codegen, "generate_project", boom)
+    out = builder_tools.build_web_app.invoke({"description": "an enormous app"})
+    assert "free-tier rate limit" in out and "couldn't generate" in out
+
+
 # --- build_web_app flow (fake codegen + fake serve) ----------------------------
 
 def test_build_web_app_writes_files_and_serves(tmp_path, monkeypatch):

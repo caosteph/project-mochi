@@ -139,6 +139,14 @@ class Settings(BaseSettings):
     builder_port_base: int = 8100        # first port to try when serving built apps
     builder_sandbox_timeout: int = 120   # seconds cap on a sandboxed command
     builder_fs_deny: bool = True         # best-effort sandbox-exec deny of data//.env reads
+    # Hosted codegen must fit under the model provider's per-minute token budget (TPM): a request
+    # reserves prompt + max_completion tokens against it. Groq's FREE tier caps gpt-oss-120b at
+    # 8000 TPM, so the old flat 8000-token completion cap made every build 413 ("request too large").
+    # The completion cap is now sized dynamically against this budget (app/builder/codegen.py).
+    # `builder_tpm_budget` is that per-minute limit (0 = no clamp, for a paid tier or a provider with
+    # no such reservation limit); `builder_max_output_tokens` bounds a single-file app's size.
+    builder_max_output_tokens: int = 6000
+    builder_tpm_budget: int = 8000
 
     # Email signal ingestion (Phase 3B) — the quarantined reader scans recent mail,
     # extracts a typed actionable signal, and proactively asks before creating a reminder.

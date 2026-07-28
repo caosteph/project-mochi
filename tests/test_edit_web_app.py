@@ -71,8 +71,9 @@ def test_latest_project_none_when_empty(ws):
 def test_revise_project_prompt_includes_existing_code(monkeypatch):
     captured = {}
 
-    def fake_generate(system_text, user_text):
+    def fake_generate(system_text, user_text, *, min_output=0):
         captured["user"] = user_text
+        captured["min_output"] = min_output
         return "<html>new</html>"
 
     monkeypatch.setattr(codegen, "_generate", fake_generate)
@@ -81,6 +82,7 @@ def test_revise_project_prompt_includes_existing_code(monkeypatch):
     out = codegen.revise_project(existing, "use tailwind")
     assert out.files[0].content == "<html>new</html>"
     assert "OLD_MARKER_CONTENT" in captured["user"] and "use tailwind" in captured["user"]
+    assert captured["min_output"] > 0  # revise sizes min_output from the file it must reproduce
 
 
 def test_revise_project_generator_seam():

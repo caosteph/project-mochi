@@ -20,16 +20,21 @@ from sqlmodel import Session
 
 from app.agent import router, sanitize
 from app.agent.router import Sensitivity
+from app.config import settings
 from app.memory.db import get_engine
 from app.memory.models import HostedConsult
 
 log = logging.getLogger(__name__)
 
-# A single-file Tailwind+Alpine app is a few KB of HTML; give generation ample room so the file is
-# never truncated mid-tag (truncation was what made the first revise fail).
-_MAX_OUTPUT_TOKENS = 8000
 # Cap how much existing code we send back on an edit — keeps a runaway file from blowing the prompt.
 _MAX_CODE_CHARS = 24_000
+# Below this, a full-file rewrite would truncate mid-tag — better to fail with a clear message than
+# emit a broken page. It's also the floor under which "won't fit the free-tier budget" is true.
+_MIN_OUTPUT_TOKENS = 1500
+# Conservative headroom when sizing the completion cap: chars/3 OVER-estimates tokens (code is
+# punctuation-dense), and this fixed margin covers the rest, so we clamp or bail BEFORE the provider
+# 413s rather than after.
+_TPM_MARGIN = 512
 
 _FENCE = re.compile(r"^\s*```[a-zA-Z]*\n|\n```\s*$")
 
@@ -77,19 +82,41 @@ _FRAMEWORK_SYSTEM = SystemMessage(
 )
 
 
-def _raw_model():
-    # max_tokens goes through the router (a first-class param now) rather than a post-hoc .bind():
-    # a single-file Tailwind+Alpine app is a few KB, so give generation ample room (truncation is
-    # what made the first revise fail). temperature 0.3 is a deliberate codegen choice, not the
-    # agent profile default.
-    return router.chat_model(
-        Sensitivity.NON_SENSITIVE, temperature=0.3, max_tokens=_MAX_OUTPUT_TOKENS
-    )
+class BuilderBudgetError(RuntimeError):
+    """The prompt + a usable completion can't fit the model provider's per-minute token budget
+    (e.g. Groq's free-tier TPM). Raised so the builder tools return a clear message, not a raw 413."""
 
 
-def _generate(system_text: str, user_text: str) -> str:
-    """Generate raw HTML text from the hosted model, stripping any stray markdown fence."""
-    msg = _raw_model().invoke([SystemMessage(system_text), HumanMessage(user_text)])
+def _effective_max_tokens(prompt_chars: int, min_output: int = _MIN_OUTPUT_TOKENS) -> int:
+    """Completion cap that keeps prompt + completion under the provider's TPM budget. `min_output` is
+    the smallest completion that would still be USABLE — for a revise it's ~the size of the file being
+    rewritten (a smaller cap would truncate the page mid-tag). Raises BuilderBudgetError when that
+    won't fit (the file is too big for the tier), so the caller explains rather than truncating or 413ing."""
+    cap = settings.builder_max_output_tokens
+    budget = settings.builder_tpm_budget
+    if budget <= 0:
+        return cap  # no clamp: paid tier, or a provider without a per-minute reservation limit
+    headroom = budget - (prompt_chars // 3) - _TPM_MARGIN
+    if headroom < max(_MIN_OUTPUT_TOKENS, min_output):
+        raise BuilderBudgetError(
+            "it's too large for the current model's free-tier rate limit — try a simpler build or a "
+            "smaller change, or raise the hosted model's tier"
+        )
+    return min(cap, headroom)
+
+
+def _raw_model(max_tokens: int):
+    # temperature 0.3 is a deliberate codegen choice, not the agent profile default; max_tokens is
+    # sized per call to fit the provider's token budget (see _effective_max_tokens).
+    return router.chat_model(Sensitivity.NON_SENSITIVE, temperature=0.3, max_tokens=max_tokens)
+
+
+def _generate(system_text: str, user_text: str, *, min_output: int = _MIN_OUTPUT_TOKENS) -> str:
+    """Generate raw HTML from the hosted model, stripping any stray markdown fence. Sizes the
+    completion cap to fit the provider's per-minute token budget (raises BuilderBudgetError if the
+    request can't fit — the caller turns that into a clear message instead of a truncated page or 413)."""
+    max_tokens = _effective_max_tokens(len(system_text) + len(user_text), min_output)
+    msg = _raw_model(max_tokens).invoke([SystemMessage(system_text), HumanMessage(user_text)])
     text = msg.content if isinstance(msg.content, str) else ""
     return _FENCE.sub("", text.strip()).strip()
 
@@ -131,7 +158,12 @@ def revise_project(existing_files: list[FileSpec], change: str, *, generator=Non
 
     clean, hits = sanitize.redact(change)
     current = "\n\n".join(f"--- {f.path} ---\n{f.content[:_MAX_CODE_CHARS]}" for f in existing_files)
-    html = _generate(_REVISE_SYSTEM, f"Change request: {clean}\n\nCurrent index.html:\n{current}")
+    # A revise rewrites the whole file, so it needs room to reproduce it (~its own token count).
+    # Passing that as min_output makes it fail with a clear message when the file is too big for the
+    # tier, rather than truncating the page mid-tag and serving the broken result as "updated".
+    min_output = len(current) // 4
+    html = _generate(_REVISE_SYSTEM, f"Change request: {clean}\n\nCurrent index.html:\n{current}",
+                     min_output=min_output)
     project = GeneratedProject(files=_single_file(html))
     _audit(f"[edit] {clean}", len(project.files), hits)
     return project

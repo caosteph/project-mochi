@@ -321,6 +321,22 @@ to medium.**
 
 ## ✅ Resolved (kept — the lessons still apply)
 
+### Hosted builds fit the free-tier token budget (2026-07-27)
+Every hosted build/edit started 413'ing: `Request too large … TPM Limit 8000, Requested 8309`. Root
+cause: a provider's per-minute token budget (Groq free tier, 8000 TPM for gpt-oss-120b) counts the
+**reserved `max_completion_tokens`**, and the builder asked for a flat 8000, so `prompt + 8000` always
+exceeded 8000 — a single request couldn't fit, and retrying can't help (it's not transient). The revise
+path was worse (it also sends the current file back). Fix: size the completion cap **dynamically** to
+fit the budget — `app/builder/codegen.py` `_effective_max_tokens(prompt_chars)` returns
+`min(builder_max_output_tokens, budget − prompt_est − margin)` (prompt estimated conservatively at
+chars/3 so we clamp/bail *before* a 413), and raises `BuilderBudgetError` when even a minimal
+completion won't fit, which the tools turn into a clear message instead of a stack trace. Config-driven:
+`builder_max_output_tokens` (default 6000) and `builder_tpm_budget` (default 8000, **0 = no clamp** for
+a paid tier or a provider without this limit). Lesson: when a provider's rate limit reserves output
+tokens, the output cap is not free headroom — it spends the same budget as the prompt. A larger local
+model on the mini (#29) or a paid/other provider sidesteps this; the config knobs make that a one-line
+change. Gated by `tests/test_builder.py` (budget fits / bails / no-clamp / clear tool message).
+
 ### Builder round 1: polished Tailwind+Alpine apps that iterate in place (2026-07-26)
 The 2026-07-25 chat was dominated by the builder failing: the one build was bare ("might as well be
 plain text"), and ~8 "make it richer / use tailwind / fix it" turns produced only narration ("I'm
