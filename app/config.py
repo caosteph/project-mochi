@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     redact_terms: str = ""
     redact_max_hits: int = 4
 
+    # Sender-trust gate (Phase #2): a comma-separated allowlist of trusted sender domains (billers,
+    # institutions — e.g. "chase.com,pge.com"). A bill/deadline/return nudge from a sender NOT in this
+    # set (or one that fails SPF/DKIM/DMARC, or name-drops a listed brand from a different domain) is
+    # caution-framed instead of a bare payment prompt. See app/proactive/sender_trust.py.
+    trusted_sender_domains: str = ""
+
     # Web search (Phase 8) — the local model can look things up online. Only a
     # PII-SCRUBBED query leaves (via app/agent/sanitize.py); results are synthesized on
     # the LOCAL model; every query is audited (/sent). Independent of `local_only` (that

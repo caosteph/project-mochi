@@ -196,5 +196,8 @@ def get_message_body(message_id: str, *, service=None) -> dict:
         "from": headers.get("From"),
         "subject": headers.get("Subject"),
         "date": headers.get("Date"),
+        # Gmail-verified authentication result (SPF/DKIM/DMARC) — envelope metadata, not body content,
+        # so it's a trust signal the sender can't forge. Used by sender_trust.classify (Phase #2).
+        "auth_results": headers.get("Authentication-Results"),
         "body_text": body,
     }

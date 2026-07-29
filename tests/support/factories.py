@@ -38,7 +38,8 @@ def make_reminder(session: Session, text: str, *, due_at: datetime | None = None
 
 def make_signal(session: Session, *, title: str = "Rain jacket from REI", signal_type: str = "return",
                 status: str = SignalStatus.ASKED.value, source: str = "gmail:abc123",
-                due_date: datetime | None = None, summary: str | None = None) -> EmailSignal:
+                due_date: datetime | None = None, summary: str | None = None,
+                sender: str | None = None, sender_trust: str | None = None) -> EmailSignal:
     signal = EmailSignal(
         source=source,
         signal_type=signal_type,
@@ -46,6 +47,8 @@ def make_signal(session: Session, *, title: str = "Rain jacket from REI", signal
         summary=summary,
         due_date=due_date or datetime.now(UTC) + timedelta(days=3),
         status=status,
+        sender=sender,
+        sender_trust=sender_trust,
     )
     session.add(signal)
     session.commit()

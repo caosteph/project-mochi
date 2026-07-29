@@ -27,7 +27,7 @@ from app.agent import quarantine
 from app.config import settings
 from app.integrations import google_gmail
 from app.memory.models import EmailSignal, IngestState, ProcessedEmail, SignalStatus, SignalType
-from app.proactive import reminders, text_match
+from app.proactive import reminders, sender_trust, text_match
 
 log = logging.getLogger(__name__)
 
@@ -242,6 +242,8 @@ def ingest_signals(session: Session, *, service=None, extractor=None, now: datet
                 amount=sig.amount,
                 currency=sig.currency,
                 status=SignalStatus.DETECTED.value,
+                sender=email.get("from"),
+                sender_trust=sender_trust.classify(email.get("from"), email.get("auth_results")),
             )
             session.add(row)
             session.commit()
@@ -260,12 +262,29 @@ def _when(signal: EmailSignal) -> str:
     return f" by {signal.due_date.astimezone():%b %-d}" if signal.due_date else ""
 
 
+# Signal types whose nudge is an action prompt (pay / return / meet a deadline) and therefore
+# dangerous to phrase confidently for an untrusted sender — these are sender-trust-gated.
+_TRUST_GATED_TYPES = {SignalType.RETURN.value, SignalType.BILL.value, SignalType.DEADLINE.value}
+
+
 def suggest_text(signal: EmailSignal) -> str:
     """The approval ask, composed ONLY from validated, length-capped fields — never
     the raw email body and never model-generated, so untrusted content can't smuggle
-    instructions into a message Mochi sends."""
+    instructions into a message Mochi sends.
+
+    Sender-trust gate (Phase #2): a bill/deadline/return from a sender that isn't `trusted`
+    gets a caution instead of a bare action prompt — so Mochi never lends a phishing email the
+    credibility of a confident "want a reminder to pay it?"."""
     t = signal.title
     when = _when(signal)
+    trust = signal.sender_trust or "unknown"
+    if signal.signal_type in _TRUST_GATED_TYPES and trust != "trusted":
+        if trust == "suspicious":
+            return (f"🚫 Heads up about {t}{when} — but this sender looks spoofed (failed "
+                    "verification). I wouldn't act on it without confirming it's genuine first. "
+                    "Want a reminder to check it out?")
+        return (f"⚠️ {t}{when} — but I don't recognize this sender, so verify it's genuine before "
+                "acting on it. Want a reminder to look into it?")
     templates = {
         SignalType.RETURN.value: f"🛍️ Looks like you got {t}. Want me to remind you to return it{when}?",
         SignalType.BILL.value: f"💸 {t} looks due{when}. Want a reminder to pay it?",

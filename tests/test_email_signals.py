@@ -41,8 +41,9 @@ def _sig(**kw) -> ExtractedSignal:
     return ExtractedSignal(**base)
 
 
-def _email(subject="Your order", body="body", frm="shop@rei.com", date="Mon, 13 Jul 2026 10:00:00 +0000"):
-    return {"from": frm, "subject": subject, "date": date, "body_text": body}
+def _email(subject="Your order", body="body", frm="shop@rei.com", date="Mon, 13 Jul 2026 10:00:00 +0000",
+           auth=None):
+    return {"from": frm, "subject": subject, "date": date, "body_text": body, "auth_results": auth}
 
 
 def _init(session):
@@ -159,10 +160,63 @@ def test_pipeline_creates_signal_only_when_actionable(session, monkeypatch):
 
 def test_suggest_text_is_per_type_and_only_uses_title(session):
     sig = EmailSignal(source="gmail:x", signal_type="bill", title="Electric bill from PG&E",
-                      due_date=datetime(2026, 8, 1, 17, tzinfo=UTC), status="detected")
+                      due_date=datetime(2026, 8, 1, 17, tzinfo=UTC), status="detected",
+                      sender_trust="trusted")
     text = email_signals.suggest_text(sig)
     assert "Electric bill from PG&E" in text and "pay" in text.lower()
     assert "💸" in text
+
+
+# --- 3b. sender-trust gate on the nudge phrasing (Phase #2) ------------------
+
+def _bill(trust):
+    return EmailSignal(source="gmail:x", signal_type="bill", title="Invoice #4432",
+                       due_date=datetime(2026, 8, 1, 17, tzinfo=UTC), status="detected",
+                       sender_trust=trust)
+
+
+def test_untrusted_bill_is_caution_framed_not_a_payment_prompt(session):
+    text = email_signals.suggest_text(_bill("unknown"))
+    assert "⚠️" in text and "recognize" in text.lower()
+    assert "pay it" not in text.lower() and "💸" not in text  # no confident payment prompt
+
+
+def test_suspicious_bill_is_hard_cautioned(session):
+    text = email_signals.suggest_text(_bill("suspicious"))
+    assert "🚫" in text and "spoof" in text.lower()
+    assert "pay it" not in text.lower()
+
+
+def test_trusted_bill_keeps_the_normal_prompt(session):
+    text = email_signals.suggest_text(_bill("trusted"))
+    assert "💸" in text and "pay it" in text.lower()
+
+
+def test_appointment_is_not_trust_gated(session):
+    # Only action prompts (bill/deadline/return) are gated; an appointment nudge is unchanged.
+    sig = EmailSignal(source="gmail:x", signal_type="appointment", title="Dentist Tue 3pm",
+                      due_date=datetime(2026, 8, 1, 15, tzinfo=UTC), status="detected",
+                      sender_trust="unknown")
+    assert "📅" in email_signals.suggest_text(sig)
+
+
+def test_ingest_stores_sender_and_trust(session, monkeypatch):
+    monkeypatch.setattr(settings, "trusted_sender_domains", "chase.com")
+    monkeypatch.setattr(settings, "signal_skip_calendared", False)  # not testing the calendar path here
+    _init(session)
+    _patch_gmail(monkeypatch, {
+        "good": _email(subject="Chase statement", frm="Chase <alerts@chase.com>", auth="spf=pass dkim=pass"),
+        "bad": _email(subject="Acme invoice", frm="Chase <no-reply@evil.com>", auth="spf=pass"),
+    })
+
+    def extractor(email):
+        return _sig(signal_type="bill", title=email["subject"], due_date="2026-08-01")
+
+    created = email_signals.ingest_signals(session, extractor=extractor, now=datetime.now(UTC))
+    by_source = {c.source.split(":")[1]: c for c in created}
+    assert by_source["good"].sender_trust == "trusted"
+    assert by_source["bad"].sender_trust == "suspicious"  # display-name spoof (Chase ↔ evil.com)
+    assert "chase.com" in by_source["good"].sender
 
 
 # --- 4. safety boundary -----------------------------------------------------

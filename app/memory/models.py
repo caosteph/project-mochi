@@ -194,6 +194,11 @@ class EmailSignal(SQLModel, table=True):
     currency: str | None = None
     status: str = Field(default=SignalStatus.DETECTED.value, sa_column=Column(String, index=True))
     reminder_id: int | None = Field(default=None, foreign_key="reminder.id")
+    # Sender identity + trust tier (Phase #2). `sender` is the raw From header (envelope metadata,
+    # not body content); `sender_trust` is "trusted" | "unknown" | "suspicious" from
+    # app/proactive/sender_trust.py — an input to how a nudge is PHRASED, not to detection.
+    sender: str | None = None
+    sender_trust: str | None = None
     created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
 
 

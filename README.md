@@ -187,7 +187,7 @@ app/
   integrations/ Google auth / Calendar / Gmail
   memory/       SQLModel models, embeddings, hybrid recall, fact extraction
   proactive/    reminders (+ reminder_time parsing, reminder_calendar mirroring), email-signal
-                scanning, the daily briefing, the job scheduler
+                scanning (+ sender-trust gating), the daily briefing, the job scheduler
   builder/      sandboxed web-app (Tailwind+Alpine, iterative) + document generation, LAN serving
 docs/           the roadmap, primers, and a build guide per phase (single source of truth)
 scripts/        verify_*.py real-model checks + preflight/run wrappers (_verify_lib.py is shared)

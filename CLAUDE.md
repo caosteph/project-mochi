@@ -102,8 +102,16 @@ interrupt re-run doesn't double-count, matching `web_search`), and `/ask` — wh
 so `interrupt()` can't reach it — gets a Send/Cancel tap whenever it scrubbed anything (`_confirm_ask` +
 `_on_ask_confirm` + a new `ask:` callback prefix), while a 0-hit generic `/ask` still auto-sends. Gated by
 `tests/test_expert_approval.py` (real-graph pause/reject/approve) + new `/ask` preview tests;
-`verify_scenarios` 16/16 (no firing regression). Deferred from the same set: #2 (sender-trust nudge gate),
-#5 (local semantic classifier), #6 (provenance/taint egress — an epic). See `docs/04-constitution.md`.
+`verify_scenarios` 16/16 (no firing regression). **Then #2 (sender-trust nudge gate):** a phishing
+"bill" the reader classifies as actionable was surfaced with Mochi's trusted voice ("💸 … want a
+reminder to pay it?"), lending the scam credibility — an attack on *her*, not the agent. Detection is
+unchanged; a new deterministic `app/proactive/sender_trust.py` classifies the sender (envelope metadata
+only — From + Gmail's `Authentication-Results`, which a body can't forge) as `trusted`/`unknown`/
+`suspicious` (allowlist `trusted_sender_domains`, display-name-vs-domain spoof, SPF/DKIM/DMARC fail),
+stored on `EmailSignal` (idempotent `ALTER TABLE emailsignal`), and `suggest_text` **caution-frames** any
+bill/deadline/return from a non-`trusted` sender instead of a bare payment prompt. Gated by
+`tests/test_sender_trust.py` + `test_email_signals.py`; 378 hermetic tests green. Deferred from the same
+set: #5 (local semantic classifier), #6 (provenance/taint egress — an epic). See `docs/04-constitution.md`.
 
 **Mac-mini transition prep — model behavior is config-driven, and a scorecard measures a swap.** The
 biggest quality lever is a bigger local model (docs/14 #29), or sooner a free same-size one (#9). To
@@ -432,7 +440,7 @@ personal-agent/
     integrations/       # google_auth / google_calendar / google_gmail / web_search
     memory/             # models, db, store, embeddings, extract
     proactive/          # reminders (+ reminder_time pure parsing, reminder_calendar mirroring),
-                        #   jobs, email_signals, briefing, text_match
+                        #   jobs, email_signals, sender_trust, briefing, text_match
     builder/            # sandbox, codegen, docs, serve, workspace
   data/ workspace/      # local state / tokens / built artifacts (git-ignored)
   docs/ scripts/ tests/ launchd/ ollama/ .github/

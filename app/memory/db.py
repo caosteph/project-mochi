@@ -81,3 +81,7 @@ def init_db(engine: Engine | None = None) -> None:
         conn.execute(text("ALTER TABLE fact ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fact_pinned ON fact (pinned)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminder_kind ON reminder (kind)"))
+        # `emailsignal.sender`/`sender_trust` (Phase #2 sender-trust gate): the table predates these,
+        # and create_all() won't alter it, so add them idempotently or the first ingest crashes.
+        for col_def in ("sender VARCHAR", "sender_trust VARCHAR"):
+            conn.execute(text(f"ALTER TABLE emailsignal ADD COLUMN IF NOT EXISTS {col_def}"))
