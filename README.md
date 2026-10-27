@@ -213,7 +213,7 @@ Two layers, because they catch different things:
   wobbles is decided from several samples (`sample_check`) rather than one — while a *must-not* check
   requires **every** sample to be clean, so a retry can't launder a violation. Each check prints its
   `hits/attempts`, so scraping by never looks like a clean pass. `scripts/verify_all.sh` runs the
-  whole regression sequentially.
+  whole regression sequentially; `scripts/verify_smoke.sh` is the fast mid-change tier.
 - **`scripts/scorecard.py`** — a *report*, not a gate: it prints behavioral **rates** (tool-firing,
   no-JSON-dump, honoring a negative constraint single-turn and across a rolling summary,
   answers-vs-narrates) for the current `LOCAL_MODEL` + model profile, so a model swap is decided from
@@ -224,7 +224,9 @@ Two layers, because they catch different things:
 A **pre-push hook** (`.githooks/pre-push`, opt in with `./scripts/install_hooks.sh`) reproduces CI
 locally before every push: it runs `ruff` and the hermetic suite **with the embedding endpoint pointed
 at a dead host**, so a test that embeds without the `needs_ollama` marker — which passes locally but
-fails in CI, since CI has no Ollama — is caught here instead. Bypass with `git push --no-verify`.
+fails in CI, since CI has no Ollama — is caught here instead. It first runs `scripts/check_secrets.py`
+over the commits being pushed, so a credential or `.env` never reaches GitHub (CI repeats that over
+full history, plus gitleaks). Bypass with `git push --no-verify`.
 
 ```bash
 ./scripts/install_hooks.sh   # one-time: enable the pre-push CI-parity gate
