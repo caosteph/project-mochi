@@ -79,12 +79,21 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 
 ## Current status
 
+**Voice notes — transcribed on-device, then the same turn as typed text (2026-10-27).** docs/14 #6.
+`_on_voice` downloads the note to a temp file, `app/integrations/transcribe.py` runs local
+faster-whisper (base/int8, lazy + cached, language pinned, VAD on), the file is deleted in `finally`,
+Mochi echoes the transcript, and the text goes through the shared `_handle_text` path. Decoding is our
+own PyAV code because faster-whisper 1.2.1's `decode_audio` is broken against PyAV ≥ 17 (verified).
+Channel-only (no persona/tool/graph change). 461 hermetic tests green; **the real-model check
+`scripts/verify_voice.py` (macOS `say` → OGG/Opus → whisper → agent fires `add_reminder`) has not run
+yet** — it needs the Mac (whisper weights couldn't be fetched here).
+
 **Rule 5 is now code, and the gate has a fast tier (2026-10-27).** docs/14 #7 + #8.
 `scripts/check_secrets.py` (stdlib) runs first in the pre-push hook — every added line of the outgoing
 commits, so a key added-then-deleted is still caught, plus forbidden files (`.env`, `data/*`, token
 JSON) — and over full history in a new `Secrets` CI job alongside gitleaks. Proven by a real push
 through the hook into a scratch remote (blocked, nothing sent) and a clean scan of all 51 real
-commits; the gitleaks step's first run is its first CI run (its binary couldn't be fetched here).
+commits; gitleaks couldn't run locally (binary download blocked) but passed on its first CI run.
 `scripts/verify_smoke.sh` is the mid-change gate: offline suite + `verify_scenarios` + core-tool
 firing via a new `verify_firing --floor` collapse check; its wall-clock is unmeasured until run on
 the Mac. 450 hermetic tests green.
@@ -465,7 +474,7 @@ personal-agent/
     agent/              # graph, persona, tools/, router, quarantine, sanitize, tool_select
     channels/           # base (Channel + ChannelContract), render, telegram{,_stream,
                         #   _commands,_buttons}
-    integrations/       # google_auth / google_calendar / google_gmail / web_search
+    integrations/       # google_auth / google_calendar / google_gmail / web_search / transcribe
     memory/             # models, db, store, embeddings, extract
     proactive/          # reminders (+ reminder_time pure parsing, reminder_calendar mirroring),
                         #   jobs, email_signals, sender_trust, briefing, text_match

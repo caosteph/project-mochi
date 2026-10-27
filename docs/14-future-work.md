@@ -87,12 +87,8 @@ are high-variance — gate with `verify_firing`), and/or a post-generation fallb
 bare "X or Y?" / "should I …?" question with no tool call, offer it as buttons instead of sending the
 prose. The fallback is more robust because it doesn't depend on the model choosing the tool. **Medium.**
 
-### 6. Voice messages (local transcription)
-Handle Telegram voice notes: download the audio, transcribe locally with `whisper.cpp`/`faster-whisper`
-(base model is plenty for short notes), feed the text through the normal turn path. Strictly local —
-audio is personal data, so it never leaves the machine. This is the biggest everyday UX upgrade on a
-phone: capturing a reminder while walking is exactly where typing loses, and it's what makes an
-assistant habitual rather than occasional. **Medium, $0.**
+### 6. Voice messages (local transcription) — ✅ shipped 2026-10-27
+See *Voice notes, transcribed on-device* under Resolved.
 
 ### 7. Secret scanning in CI — ✅ shipped 2026-10-27
 See *Secret scanning: pre-push + CI* under Resolved.
@@ -317,6 +313,24 @@ code) or the mini's local 32B (no per-minute limit). **Small to medium.**
 
 ## ✅ Resolved (kept — the lessons still apply)
 
+### Voice notes, transcribed on-device (2026-10-27)
+Capturing a reminder while walking is where typing loses. A Telegram voice note is downloaded to a
+temp file, transcribed **locally** by `faster-whisper` (`app/integrations/transcribe.py`, base/int8,
+lazy-loaded + cached; `whisper_language` pinned to `en` since short notes mis-detect it; VAD drops
+silence so a pocket-dial doesn't become a hallucinated sentence), the temp file is deleted in a
+`finally`, Mochi echoes `🎙️ "<what it heard>"` so a mis-hearing is visible before it acts, and the
+text goes through **the same `_handle_text` turn as typed input** (same graph input, same
+swipe-reply-to-/ask routing, same fact sweep — no second code path). Notes over `voice_max_seconds`
+are declined before download; `voice_enabled` turns it off. **Lesson, measured:** faster-whisper
+1.2.1's own `decode_audio` calls `av.open(..., metadata_errors=...)`, which PyAV ≥ 17 rejects with
+TypeError, and its `av` requirement is unbounded — so a fresh install is broken out of the box. We
+decode with PyAV ourselves (→ 16 kHz mono float32) and hand the model an array, which is
+version-proof. Gated by `tests/test_voice.py` (11, incl. a real OGG/Opus decode and a mutation check
+that dropping the temp-file delete fails two tests) and `scripts/verify_voice.py` (in `verify_all.sh`:
+macOS `say` → OGG/Opus → the real whisper model → the real agent must fire `add_reminder`). **Not yet
+run with the real model** — the session that built it couldn't download whisper weights (Hugging Face
+blocked); the first `verify_voice.py` run on the Mac is that proof, and it downloads ~150 MB once.
+
 ### Secret scanning: pre-push + CI (2026-10-27)
 Rule 5 was the only hard-tier rule enforced by habit, and on a public repo a pushed key is
 unrecoverable (history keeps it after deletion; the fix is rotation). Two layers, because a CI-only
@@ -329,10 +343,10 @@ outright (`.env`, `data/*`, token/client-secret JSON, keys). A deliberate fixtur
 `secret-scan: allow`. (2) `.github/workflows/secrets.yml` adds **gitleaks** as a broad second opinion.
 Verified: `tests/test_check_secrets.py` (29, incl. a real throwaway repo where a key is added then
 deleted), a clean scan of all 51 commits of real history, and an end-to-end push through the real
-hook into a scratch remote — blocked at step 1, nothing reached the remote. **Not verified locally:**
-the gitleaks step (downloading its binary was blocked in the session that built this), so its first
-CI run is its first run — if it flags a false positive, add a `.gitleaksignore` entry rather than
-weakening the job.
+hook into a scratch remote — blocked at step 1, nothing reached the remote. The gitleaks step couldn't
+run locally (its binary download was blocked), so its first run was CI: **green** on its first push
+(2026-10-27). If it ever flags a false positive, add a `.gitleaksignore` entry rather than weakening
+the job.
 
 ### A fast smoke tier (2026-10-27)
 The full `verify_all.sh` measured ~21 min, so it was skipped mid-change — the gap regressions slipped
