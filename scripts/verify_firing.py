@@ -11,7 +11,9 @@ Usage:
     # Compare working tree vs HEAD (git-stashes, measures HEAD in a FRESH process, restores):
     ...  uv run python scripts/verify_firing.py --baseline add_reminder,create_draft,web_search
 
-Options: --n N (samples per prompt, default 4), --json (machine-readable).
+Options: --n N (samples per prompt, default 4), --json (machine-readable), --floor PCT (exit 1 if
+any tool's overall firing rate is below PCT — turns the report into a gate; scripts/verify_smoke.sh
+uses it as a cheap collapse detector).
 
 Run with the bot stopped — its keep-warm pings contend with these calls on Ollama (which
 serializes), giving misleading rates.
@@ -79,6 +81,16 @@ def _print_table(label: str, results: dict, n: int) -> None:
             print(f"    {hits}/{n}  {prompt!r}")
 
 
+def below_floor(results: dict, n: int, floor_pct: float) -> list[str]:
+    """Tools whose overall firing rate (all prompts × n) is below `floor_pct`. Pure — unit-tested."""
+    low = []
+    for tool, per in results.items():
+        total = len(per) * n
+        if total and 100.0 * sum(per.values()) / total < floor_pct:
+            low.append(f"{tool} {sum(per.values())}/{total}")
+    return low
+
+
 def _print_diff(head: dict, working: dict, n: int) -> None:
     print(f"\n### HEAD vs WORKING (N={n}) — ⚠️ marks a drop")
     regressed = False
@@ -140,6 +152,8 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=4, help="samples per prompt (default 4)")
     ap.add_argument("--baseline", action="store_true", help="diff the working tree against HEAD")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
+    ap.add_argument("--floor", type=float, default=None,
+                    help="exit 1 if any tool's overall firing rate is below this percent")
     args = ap.parse_args()
     tools = [t.strip() for t in args.tools.split(",") if t.strip()]
 
@@ -151,6 +165,10 @@ def main() -> None:
             print(json.dumps(results))
         else:
             _print_table("working", results, args.n)
+        if args.floor is not None:
+            low = below_floor(results, args.n, args.floor)
+            print(f"\nFLOOR {args.floor:g}%: " + (f"FAILED — {', '.join(low)}" if low else "ok"))
+            sys.exit(1 if low else 0)
 
 
 if __name__ == "__main__":

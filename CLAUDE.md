@@ -37,7 +37,8 @@ Explicit, always-on expectations for any AI session in this repo — read this e
   (`verify_phase1/2/3` + `verify_dynamic_tools` + `verify_scenarios`) BEFORE claiming success — they
   regress silently.** `verify_scenarios` is the behavioral gate (right tool fires + no JSON dump). Never
   report a model metric from a single run (re-run to rule out variance; the 7B is stochastic).
-  `scripts/verify_all.sh` runs the whole regression **sequentially** (Ollama serializes — parallel runs
+  **Mid-change, run `scripts/verify_smoke.sh`** (the fast tier: offline suite + `verify_scenarios` +
+  a core-tool firing collapse check); `scripts/verify_all.sh` runs the whole regression **sequentially** (Ollama serializes — parallel runs
   give misleading results). To attribute a suspected regression, use **`scripts/verify_firing.py
   --baseline <tools>`** — it stashes your changes, measures HEAD in a fresh process, restores, and
   prints a HEAD-vs-working firing diff (the automated version of the manual bisection).
@@ -77,6 +78,11 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 *must* hold, it belongs in code, per the two-tier model below.)
 
 ## Current status
+
+**The gate has a fast tier (2026-10-27).** docs/14 #8. `scripts/verify_smoke.sh` is the mid-change
+gate: offline suite + `verify_scenarios` + core-tool firing via a new `verify_firing --floor` collapse
+check (fails only when a tool fires on none of its prompts). Its wall-clock is unmeasured until run on
+the Mac; `verify_all.sh` stays the definition-of-done gate.
 
 **Rule 5 is now code (2026-10-27).** docs/14 #7. `scripts/check_secrets.py` (stdlib) runs first in the
 pre-push hook — every added line of the outgoing commits (merges included), so a key added-then-deleted

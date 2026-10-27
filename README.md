@@ -213,7 +213,7 @@ Two layers, because they catch different things:
   wobbles is decided from several samples (`sample_check`) rather than one — while a *must-not* check
   requires **every** sample to be clean, so a retry can't launder a violation. Each check prints its
   `hits/attempts`, so scraping by never looks like a clean pass. `scripts/verify_all.sh` runs the
-  whole regression sequentially.
+  whole regression sequentially; `scripts/verify_smoke.sh` is the fast mid-change tier.
 - **`scripts/scorecard.py`** — a *report*, not a gate: it prints behavioral **rates** (tool-firing,
   no-JSON-dump, honoring a negative constraint single-turn and across a rolling summary,
   answers-vs-narrates) for the current `LOCAL_MODEL` + model profile, so a model swap is decided from
