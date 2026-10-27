@@ -91,11 +91,14 @@ def test_run_registers_the_callback_and_message_handlers(started):
 
 
 def test_run_schedules_the_background_jobs(started):
-    """The proactive half of the agent lives entirely in these three jobs."""
+    """The proactive half of the agent lives in these jobs, and liveness in the last two —
+    drop the heartbeat and the watchdog restarts a healthy bot every 10 minutes."""
     _chan, app = started
     assert {name for name, _, _ in app.job_queue.repeating} == {
         "reminder_tick_job",
         "signal_ingest_job",
+        "heartbeat_job",
+        "health_job",
     }
     assert [name for name, _ in app.job_queue.daily] == ["daily_briefing_job"]
 

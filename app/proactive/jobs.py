@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from sqlmodel import Session, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from app import health
 from app.config import settings
 from app.memory import store
 from app.memory.db import get_engine
@@ -23,14 +24,17 @@ from app.proactive import briefing, email_signals, reminder_time, reminders
 log = logging.getLogger(__name__)
 
 # Runtime kill-switch, initialized from config, toggled live by /pause /resume.
-# (Read directly as `_enabled` within this module; there is no public getter because nothing
-# outside needed one — an unused `is_enabled()` accessor was removed.)
 _enabled = settings.proactivity_enabled
 
 
 def set_enabled(value: bool) -> None:
     global _enabled
     _enabled = value
+
+
+def is_enabled() -> bool:
+    """For /status, which reports whether proactivity is paused."""
+    return _enabled
 
 
 def _keyboard(reminder_id: int) -> InlineKeyboardMarkup:
@@ -73,6 +77,7 @@ async def reminder_tick_job(context) -> None:
     try:
         with Session(get_engine()) as session:
             await run_reminder_tick(context.bot, session, settings.telegram_chat_id)
+        health.record_tick()  # only a tick that SUCCEEDED counts — /status must not look alive when it isn't
     except Exception:
         log.exception("reminder_tick_job crashed; will retry next interval")
 

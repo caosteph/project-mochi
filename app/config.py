@@ -110,6 +110,15 @@ class Settings(BaseSettings):
     # this-many seconds keeps it warm; 0 disables. Must be < Ollama's idle timeout.
     keep_warm_interval_seconds: int = 240
 
+    # Liveness (app/health.py). launchd restarts a process that EXITS, not one that's wedged, so:
+    # a watchdog exits the process if the event loop's heartbeat goes silent this long (launchd +
+    # preflight.sh then restart and repair it); a health check every interval pings her once per
+    # outage, and exits for that same supervised restart when a dependency preflight can repair
+    # (Postgres/Ollama down, polling stopped) fails this many checks in a row. 0 disables each.
+    watchdog_stale_seconds: int = 600
+    health_check_interval_seconds: int = 300
+    health_restart_after_failures: int = 3
+
     # Latency instrumentation (Phase 8.1) — when true, logs per-turn timing (tool-select
     # embedding ms, time-to-first-token, tool round-trips, total). Off by default; flip it on
     # (LATENCY_LOG=true) to measure before optimizing. See docs/14-future-work.md.

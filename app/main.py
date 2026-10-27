@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from app.channels.telegram import TelegramChannel
+from app.health import start_watchdog
 from app.warmup import start_keep_warm
 
 log = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ def main() -> None:
         )
         sys.exit(1)
     start_keep_warm()  # keep the local model resident so idle-gap replies aren't slow
+    start_watchdog()  # exit (→ launchd restart) if the event loop wedges; see app/health.py
     TelegramChannel().run()
 
 

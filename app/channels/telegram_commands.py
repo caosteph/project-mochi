@@ -20,6 +20,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
+from app import health
 from app.agent import router, sanitize
 from app.agent.router import Sensitivity
 from app.channels.render import render_proposal
@@ -361,4 +362,23 @@ class CommandsMixin:
         except Exception as exc:
             await self._report_error(update.effective_chat.id, ctx, exc)
             return
+        await update.message.reply_text(text)
+
+    async def _on_status(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """`/status` — is Mochi actually alive and able to remind her? Uptime, model, a live
+        dependency check, last reminder tick + briefing, pending reminders, modes. Runs the checks
+        fresh (not the last background result) and never raises: when the DB is down, that's
+        exactly when she needs this to answer."""
+        if not self._authorized(update):
+            return
+
+        def build() -> str:
+            checks = health.run_checks(getattr(ctx, "application", None))
+            return health.build_status(checks=checks, proactivity_on=jobs.is_enabled())
+
+        try:
+            text = await asyncio.to_thread(build)
+        except Exception as exc:  # belt and braces — build_status degrades per section already
+            log.exception("/status failed")
+            text = f"🩺 Mochi is running, but /status hit an error: {type(exc).__name__}."
         await update.message.reply_text(text)
