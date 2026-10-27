@@ -51,6 +51,26 @@ pinning + the report today; the natural column when this lands), and the always-
 first consumer, next fed into the briefing and replies. Mind the prompt budget — the persona already
 uses ~3,600 of the 8k window and the card adds ~630.
 
+**(c) Overnight consolidation ("sleep-time compute") — plan reviewed 2026-10-27, stack in progress.**
+Facts are append-only today: nothing merges duplicates or retires a contradicted fact, so stale facts
+keep reaching the model via `recall`. Plan, as stacked PRs, with three corrections from reviewing the
+first draft: (1) a laptop is asleep at night, so the job runs **once a day when she's been idle ≥ 1h**,
+not "during quiet hours"; (2) embedding similarity probably won't pair contradictions ("lives in
+Queens" vs "moved to Brooklyn" use different words), so the grouping threshold must be **measured on
+her real facts** before it's set; (3) it runs in **shadow mode first** (log proposals, review, then go
+live) — the pattern the email scanner proved.
+- **A. Data layer — shipped:** soft supersession (`Fact.superseded_by`, `MemoryChange`,
+  `store.supersede`/`undo_change`), one `_active` filter on every user-facing read, capture dedup that
+  still sees superseded facts, pinned facts refused in code.
+- **B.** Read-only calibration script: pairwise similarity distribution over her facts → the threshold.
+- **C.** Consolidation engine in **shadow** (idle-triggered daily job, local 7B judges each candidate
+  group — duplicate / contradiction / both-true, defaulting to keep-both — proposals logged only) +
+  `scripts/verify_consolidation.py` (must-not checks at `need=samples`: never supersedes a distinct
+  fact, never touches a pinned one).
+- **D.** Live: apply through the data layer, `/memory` with Undo buttons, one briefing line.
+- **E.** Day mining (her own messages + reminders only — never assistant turns, which can carry
+  untrusted email/web text, rule 4). Later: calendar; the nightly corrections review (#11) reuses C's job.
+
 Without captured memory this is a capable chatbot with tools, not a personal agent; with it, it's
 *hers*. It compounds: briefing, replies, and proactivity all improve when memory is real.
 **Medium, diagnosis-led** (seed + always-on card shipped; capture + structure remain).

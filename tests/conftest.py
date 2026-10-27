@@ -65,7 +65,7 @@ def engine():
 
 _TRUNCATE = text(
     "TRUNCATE fact, goal, task, reminder, event, messagelog, "
-    "purchase, emailsignal, processedemail, ingeststate, hostedconsult, websearch, retiredtopic "
+    "purchase, emailsignal, processedemail, ingeststate, hostedconsult, websearch, retiredtopic, memorychange "
     "RESTART IDENTITY CASCADE"
 )
 

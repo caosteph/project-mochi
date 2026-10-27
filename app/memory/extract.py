@@ -61,7 +61,7 @@ def sweep_and_store(session: Session, user_message: str, *, extractor) -> list[s
     see extract_facts."""
     stored = []
     for fact in extract_facts(user_message, extractor=extractor):
-        hits = store.recall(session, query=fact, k=1)
+        hits = store.recall(session, query=fact, k=1, include_superseded=True)
         if hits and hits[0].similarity >= settings.fact_dedup_similarity:
             continue  # already know this (near-duplicate) — don't re-store
         store.remember_fact(session, text=fact, confidence=0.7, provenance=Provenance.INFERRED.value)

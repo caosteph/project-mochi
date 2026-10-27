@@ -80,6 +80,10 @@ def init_db(engine: Engine | None = None) -> None:
         # create_all() won't alter it, so add it idempotently or the first pinned read/write fails.
         conn.execute(text("ALTER TABLE fact ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fact_pinned ON fact (pinned)"))
+        # `fact.superseded_by`/`superseded_at` (memory consolidation's soft supersession): same reason.
+        conn.execute(text("ALTER TABLE fact ADD COLUMN IF NOT EXISTS superseded_by INTEGER REFERENCES fact(id)"))
+        conn.execute(text("ALTER TABLE fact ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMP WITH TIME ZONE"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fact_superseded_by ON fact (superseded_by)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminder_kind ON reminder (kind)"))
         # `emailsignal.sender`/`sender_trust` (Phase #2 sender-trust gate): the table predates these,
         # and create_all() won't alter it, so add them idempotently or the first ingest crashes.

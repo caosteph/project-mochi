@@ -121,7 +121,7 @@ def _should_pin(category: str, text: str) -> bool:
 def _dup_of(session: Session, text: str) -> Fact | None:
     """The existing near-duplicate Fact (>= the same dedup bar the post-turn sweep uses), or None.
     Reuses the real hybrid recall so imports and organic capture stay consistent."""
-    hits = store.recall(session, query=text, k=1)
+    hits = store.recall(session, query=text, k=1, include_superseded=True)
     if hits and hits[0].similarity >= settings.fact_dedup_similarity:
         return hits[0].fact
     return None
@@ -195,8 +195,10 @@ def main() -> int:
                 deduped += 1
                 # Sync the pin on a dedup so re-running is authoritative and order-independent: pin a
                 # fact that should be pinned, and UNPIN one that shouldn't (e.g. after PIN_EXCLUDE grew).
-                note = ""
-                if pin != dup.pinned and commit:
+                # A superseded match (consolidation replaced it) still blocks re-storing, but its pin is
+                # left alone — re-pinning an outdated fact would surface it on the card if ever undone.
+                note = "  [superseded — not resurrected]" if dup.superseded_by is not None else ""
+                if pin != dup.pinned and commit and dup.superseded_by is None:
                     dup.pinned = pin
                     session.add(dup)
                     session.commit()
