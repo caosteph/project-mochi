@@ -26,12 +26,15 @@ what they may assume about each other.
 """
 
 import asyncio
+import contextlib
 import logging
+import os
 from datetime import time as dt_time
 
 from langchain_core.messages import HumanMessage
 from sqlmodel import Session
 from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -49,6 +52,7 @@ from app.channels.telegram_buttons import ButtonsMixin
 from app.channels.telegram_commands import CommandsMixin
 from app.channels.telegram_stream import StreamingMixin
 from app.config import settings
+from app.integrations import transcribe
 from app.memory import extract, store
 from app.memory.db import get_engine
 from app.proactive import jobs
@@ -99,7 +103,46 @@ class TelegramChannel(StreamingMixin, CommandsMixin, ButtonsMixin, Channel):
             log.warning("Ignored message from non-whitelisted chat %s", update.effective_chat.id)
             return
 
-        text = update.message.text
+        await self._handle_text(update, ctx, update.message.text)
+
+    async def _on_voice(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """A voice note: transcribe it on-device, show her what was heard, then run it through the
+        exact same turn as typed text. The audio is written to a temp file only for the decoder and
+        deleted in `finally` — never persisted, never sent anywhere (rule 1)."""
+        if not self._authorized(update):
+            log.warning("Ignored voice from non-whitelisted chat %s", update.effective_chat.id)
+            return
+        chat_id = update.effective_chat.id
+        voice = update.message.voice
+        if not settings.voice_enabled:
+            await update.message.reply_text("Voice notes are turned off — type it to me instead.")
+            return
+        if voice.duration and voice.duration > settings.voice_max_seconds:
+            await update.message.reply_text(
+                f"That note's over {settings.voice_max_seconds // 60} min — can you split it up or type it?"
+            )
+            return
+        await ctx.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        path = transcribe.scratch_file()
+        try:
+            tg_file = await voice.get_file()
+            await tg_file.download_to_drive(path)
+            text = await asyncio.to_thread(transcribe.transcribe, path)
+        except Exception as exc:
+            log.exception("voice transcription failed")
+            await self._report_error(chat_id, ctx, exc)
+            return
+        finally:
+            with contextlib.suppress(OSError):
+                os.remove(path)
+        if not text:
+            await update.message.reply_text("I couldn't make out any words in that one — try again?")
+            return
+        await update.message.reply_text(f"🎙️ “{text}”")
+        await self._handle_text(update, ctx, text)
+
+    async def _handle_text(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+        """One user turn, whether it was typed or spoken."""
         chat_id = update.effective_chat.id
 
         # Swipe-reply to a prior /ask answer → continue that expert thread (hosted),
@@ -158,6 +201,7 @@ class TelegramChannel(StreamingMixin, CommandsMixin, ButtonsMixin, Channel):
             app.add_handler(CommandHandler(command, getattr(self, handler_name)))
         app.add_handler(CallbackQueryHandler(self._on_callback))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._on_message))
+        app.add_handler(MessageHandler(filters.VOICE, self._on_voice))
         # Proactive reminder-tick (JobQueue = APScheduler on the bot's own loop).
         app.job_queue.run_repeating(
             jobs.reminder_tick_job, interval=settings.reminder_tick_interval_seconds, first=10

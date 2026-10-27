@@ -122,6 +122,9 @@ Everything below works today. Each capability's step-by-step build history lives
   and it revises the same app in place instead of starting over.
 - **Asks a stronger model when it helps.** A de-identified, scrubbed, audited `/ask` can consult a
   bigger hosted model for generic questions while your raw personal data stays local.
+- **Takes voice notes.** Send a voice message and it's transcribed on your Mac (local Whisper —
+  the audio never leaves the machine and isn't kept), echoed back so you can see what it heard, and
+  handled exactly like typed text: "remind me to call mom at 3" works out loud.
 - **Talks in buttons.** Any yes/no or pick-one decision shows up as tappable inline buttons rather than
   a question you have to type "yes" at.
 - **Runs unattended.** Supervised by launchd (restarts on crash, repairs its own dependencies first), a
@@ -185,7 +188,7 @@ app/
                 the always-on profile card (pinned memory), tool-call repair (no raw JSON leaks)
   channels/     Telegram adapter — core + streaming/commands/buttons mixins, rendering
                 (and a Channel interface + contract for future transports)
-  integrations/ Google auth / Calendar / Gmail
+  integrations/ Google auth / Calendar / Gmail / web search / local voice transcription
   memory/       SQLModel models, embeddings, hybrid recall, fact extraction
   proactive/    reminders (+ reminder_time parsing, reminder_calendar mirroring), email-signal
                 scanning (+ sender-trust gating), the daily briefing, the job scheduler
