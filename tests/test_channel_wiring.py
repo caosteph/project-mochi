@@ -88,6 +88,8 @@ def test_run_registers_the_callback_and_message_handlers(started):
     kinds = {type(h).__name__ for h in app.handlers}
     assert "CallbackQueryHandler" in kinds, "inline buttons (approve/reject) would be dead"
     assert "MessageHandler" in kinds, "plain chat messages would be ignored"
+    callbacks = {h.callback.__name__ for h in app.handlers if type(h).__name__ == "MessageHandler"}
+    assert {"_on_message", "_on_voice"} <= callbacks, "typed or spoken messages would be ignored"
 
 
 def test_run_schedules_the_background_jobs(started):

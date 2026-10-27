@@ -110,6 +110,15 @@ class Settings(BaseSettings):
     # this-many seconds keeps it warm; 0 disables. Must be < Ollama's idle timeout.
     keep_warm_interval_seconds: int = 240
 
+    # Voice notes (app/integrations/transcribe.py) — transcribed ON-DEVICE with faster-whisper (audio is
+    # personal data; it never leaves the machine and is never stored), then handled exactly like typed
+    # text. "base" + int8 is ~150 MB and fast on the Air's CPU; "small" is more accurate, ~2-3x slower.
+    # whisper_language pins the language (short notes mis-detect it); empty = auto-detect.
+    voice_enabled: bool = True
+    whisper_model: str = "base"
+    whisper_language: str = "en"
+    voice_max_seconds: int = 180  # longer notes are declined rather than tying up the CPU
+
     # Liveness (app/health.py). launchd restarts a process that EXITS, not one that's wedged, so:
     # a watchdog exits the process if the event loop's heartbeat goes silent this long (launchd +
     # preflight.sh then restart and repair it); a health check every interval pings her once per

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from app.channels.telegram import TelegramChannel
 from app.health import start_watchdog
+from app.integrations import transcribe
 from app.warmup import start_keep_warm
 
 log = logging.getLogger(__name__)
@@ -61,6 +62,8 @@ def main() -> None:
             LOCK_PATH,
         )
         sys.exit(1)
+    if purged := transcribe.purge_scratch():  # notes orphaned by a hard exit (watchdog restart)
+        log.info("Deleted %d leftover voice note(s) from a previous run.", purged)
     start_keep_warm()  # keep the local model resident so idle-gap replies aren't slow
     start_watchdog()  # exit (→ launchd restart) if the event loop wedges; see app/health.py
     TelegramChannel().run()
