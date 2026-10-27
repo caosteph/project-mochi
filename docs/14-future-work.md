@@ -94,16 +94,8 @@ audio is personal data, so it never leaves the machine. This is the biggest ever
 phone: capturing a reminder while walking is exactly where typing loses, and it's what makes an
 assistant habitual rather than occasional. **Medium, $0.**
 
-### 7. Secret scanning in CI (a hard rule currently enforced by habit)
-Rule 5 — *secrets never leave the machine and never get committed* — is the **only hard-tier rule not
-enforced by code**. Today it's `.gitignore` plus a human remembering to check that `.env` isn't staged
-before each push. On a **public** repo the failure mode is severe and unrecoverable: a leaked bot token
-or hosted API key stays in git history after any deletion, so the fix is key rotation, not a revert.
-Add `gitleaks` (or `trufflehog`) as a third CI job on every push, and optionally a pre-commit hook so
-it fails *before* the commit exists rather than after it's public. Low probability × irreversible
-outcome × ~20 lines is exactly the shape of thing CLAUDE.md says belongs in the hard tier rather than
-in someone's memory. Distinct from *Secrets at rest* below, which is about how `.env` is **stored**;
-this is about it **escaping into git history**. **Small.**
+### 7. Secret scanning in CI — ✅ shipped 2026-10-27
+See *Secret scanning: pre-push + CI* under Resolved.
 
 ### 8. A fast smoke tier for the gate
 The standing rule is to re-run the tool-firing verifies after *any* persona/tool/graph change — but a
@@ -330,6 +322,27 @@ code) or the mini's local 32B (no per-minute limit). **Small to medium.**
 ---
 
 ## ✅ Resolved (kept — the lessons still apply)
+
+### Secret scanning: pre-push + CI (2026-10-27)
+Rule 5 was the only hard-tier rule enforced by habit, and on a public repo a pushed key is
+unrecoverable (history keeps it after deletion; the fix is rotation). Two layers, because a CI-only
+scan fires *after* the secret is already public: (1) `scripts/check_secrets.py` — stdlib, runs **first**
+in the pre-push hook (before anything leaves the machine) and in CI over full history; it scans every
+**added line in the outgoing commits** (so a key added then deleted is still caught) for the
+credential formats this project actually holds (Telegram, Groq, Tavily, OpenAI/OpenRouter-style,
+Google OAuth secret/refresh token/API key, GitHub, AWS, Slack, PEM) and refuses forbidden files
+outright (`.env`, `.env.*` except the template, `data/*`, token/client-secret JSON, keys). Merge
+commits are scanned (`--diff-merges=first-parent`; plain `git log -p` prints no patch for a merge, so a
+key typed while resolving a conflict was invisible), renames show as adds (`--no-renames`, so moving a
+file into `data/` is caught), and a remote sha that isn't fetched falls back instead of crashing the
+hook — all found in review, each with a regression test. A deliberate fixture opts out with
+`secret-scan: allow`. (2) `.github/workflows/secrets.yml` adds **gitleaks** as a broad second opinion.
+Verified: `tests/test_check_secrets.py` (29, incl. a real throwaway repo where a key is added then
+deleted), a clean scan of all 51 commits of real history, and an end-to-end push through the real
+hook into a scratch remote — blocked at step 1, nothing reached the remote. The gitleaks step couldn't
+run locally (its binary download was blocked), so its first run was CI: **green** on its first push
+(2026-10-27). If it ever flags a false positive, add a `.gitleaksignore` entry rather than weakening
+the job.
 
 ### Liveness: watchdog, health alerts, `/status` (2026-10-27)
 launchd's KeepAlive restarts a process that *exits*, not one that's wedged, and she had already lived
