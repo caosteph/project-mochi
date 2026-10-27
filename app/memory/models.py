@@ -97,6 +97,28 @@ class Fact(SQLModel, table=True):
     # kept small on purpose (the prompt budget is tight). See app/agent/profile.py.
     pinned: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+    # Soft supersession (memory consolidation). A superseded fact is never deleted: it points at the
+    # fact that replaced it and drops out of everything user-facing (recall, the profile card,
+    # /facts) — but stays visible to capture-time dedup, so an outdated fact re-stated in an old
+    # message isn't resurrected. Reversible via the MemoryChange log. Added by init_db's ALTER.
+    superseded_by: int | None = Field(default=None, foreign_key="fact.id", index=True)
+    superseded_at: datetime | None = Field(default=None, sa_column=_tz_column(nullable=True))
+
+
+class MemoryChange(SQLModel, table=True):
+    """One reversible change consolidation made to memory, for the morning report and /memory undo.
+    `kind="supersede"`: `old_fact_id` was superseded by `new_fact_id` (a merge is several of these
+    sharing a `run_id`, all pointing at the merged fact). `undone_at` set = she reverted it."""
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: str = Field(index=True)
+    kind: str
+    old_fact_id: int | None = Field(default=None, foreign_key="fact.id")
+    new_fact_id: int | None = Field(default=None, foreign_key="fact.id")
+    before_text: str = ""
+    after_text: str = ""
+    reason: str = ""
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+    undone_at: datetime | None = Field(default=None, sa_column=_tz_column(nullable=True))
 
 
 class Goal(SQLModel, table=True):

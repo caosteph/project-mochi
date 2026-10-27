@@ -79,6 +79,17 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 
 ## Current status
 
+**Memory consolidation, step A — the data layer (2026-10-27).** docs/14 #1(c). Facts can now be
+*softly* superseded: `Fact.superseded_by`/`superseded_at` (idempotent `ALTER TABLE fact`) plus a
+`MemoryChange` log, written only through `store.supersede` (refuses pinned, self, missing and
+already-superseded facts, writing nothing) and reverted by `store.undo_change` (idempotent; removes only
+the link it made). One `_active` filter hides superseded facts from every user-facing read — recall
+(vector and keyword paths), the profile card, `/facts`, the count — while capture-time dedup
+(`extract.sweep_and_store`, `import_profile`) passes `include_superseded=True` so an outdated fact
+re-stated in an old message isn't resurrected. No writer yet, so no behavior change. Gated by
+`tests/test_memory_supersession.py` (hermetic, real pgvector/full-text queries; 4 mutation checks).
+Next: B calibration → C shadow engine → D live + `/memory` undo → E day mining.
+
 **Voice notes — transcribed on-device, then the same turn as typed text (2026-10-27).** docs/14 #6.
 `_on_voice` downloads the note into `data/voice_tmp/` (deleted in `finally`, and the dir is purged on
 every startup since a hard exit skips `finally`), `app/integrations/transcribe.py` runs local
