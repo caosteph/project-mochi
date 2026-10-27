@@ -224,7 +224,9 @@ Two layers, because they catch different things:
 A **pre-push hook** (`.githooks/pre-push`, opt in with `./scripts/install_hooks.sh`) reproduces CI
 locally before every push: it runs `ruff` and the hermetic suite **with the embedding endpoint pointed
 at a dead host**, so a test that embeds without the `needs_ollama` marker — which passes locally but
-fails in CI, since CI has no Ollama — is caught here instead. Bypass with `git push --no-verify`.
+fails in CI, since CI has no Ollama — is caught here instead. It first runs `scripts/check_secrets.py`
+over the commits being pushed, so a credential or `.env` never reaches GitHub (CI repeats that over
+full history, plus gitleaks). Bypass with `git push --no-verify`.
 
 ```bash
 ./scripts/install_hooks.sh   # one-time: enable the pre-push CI-parity gate

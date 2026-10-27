@@ -6,4 +6,4 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 chmod +x .githooks/*
 git config core.hooksPath .githooks
-echo "Installed git hooks from .githooks/ (core.hooksPath set). Pre-push now runs ruff + CI-parity tests."
+echo "Installed git hooks from .githooks/ (core.hooksPath set). Pre-push now runs the secret scan + ruff + CI-parity tests."
