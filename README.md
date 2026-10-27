@@ -218,6 +218,8 @@ Two layers, because they catch different things:
   no-JSON-dump, honoring a negative constraint single-turn and across a rolling summary,
   answers-vs-narrates) for the current `LOCAL_MODEL` + model profile, so a model swap is decided from
   numbers rather than vibes. Deliberately kept out of `verify_all.sh` (real-model probes are slow).
+  `scripts/compare_models.py` runs it (plus speed, memory, and `verify_scenarios`) across several
+  local models at equal context and prints a verdict per candidate against the current one.
 
 A **pre-push hook** (`.githooks/pre-push`, opt in with `./scripts/install_hooks.sh`) reproduces CI
 locally before every push: it runs `ruff` and the hermetic suite **with the embedding endpoint pointed

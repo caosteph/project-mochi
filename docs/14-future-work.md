@@ -122,6 +122,18 @@ tokens/sec; adopt only on measured improvement (`LOCAL_MODEL` is a one-line swit
 large quality gain for **$0**, and it directly tests whether the ~$1.4k Mac mini is still needed.
 **Small — a few hours of measurement.**
 
+**Harness built (2026-10-27); the measurement itself is still to run — on the Air, bot stopped:**
+`scripts/compare_models.py <baseline> <candidates…>` pulls each model, derives its 8k variant (same
+Modelfile as production, so the A/B is at equal context), measures prompt/decode tok/s + resident GB
+on a ~4k-token prompt, runs `scorecard.py --json` + `verify_scenarios.py` against it, unloads it, and
+prints a table + a conservative verdict per candidate (ADOPT only if the scenarios gate passes, no rate
+drops more than `--tolerance` points, one rises more than that, and it fits `--max-resident-gb`). It
+could not be run from the cloud session that built it (no Ollama, and the model registries were blocked),
+so **no numbers exist yet** — run it, e.g. `compare_models.py qwen2.5:7b qwen3:8b llama3.1:8b`, after
+checking ollama.com/library for anything newer in the 7–8B class. A thinking model (Qwen3) may emit its
+reasoning differently through the OpenAI endpoint; if its no-JSON-dump or narrates rates look odd, look
+at a raw reply before trusting the number.
+
 ### 10. Measure answer *quality*, not just tool firing
 Every gate we have asks "did the right tool fire?" and "is the reply free of JSON?" — nothing asks
 "was the answer any good?". SOTA practice is eval-driven: a golden set of conversations scored by an
