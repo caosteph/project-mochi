@@ -63,10 +63,17 @@ live) — the pattern the email scanner proved.
   `store.supersede`/`undo_change`), one `_active` filter on every user-facing read, capture dedup that
   still sees superseded facts, pinned facts refused in code.
 - **B. Calibration — built, not yet run on her facts:** `scripts/calibrate_consolidation.py` (read-only — the connection sets `default_transaction_read_only=on`, so Postgres rejects any write; safe while the bot runs). Pairwise similarity distribution, then `--label N` asks about pairs sampled *across* similarity bands (the low bands are where a wordless contradiction hides), saved to `data/consolidation_labels.json`, and a per-threshold table of model calls vs related pairs caught. Recommends the highest threshold meeting `--target-recall` (0.9), and refuses on <5 related labels, on no threshold reaching the target ("similarity alone can't group them" — the signal to add a non-embedding candidate source in C), or over budget. **Run on the Mac:** `uv run python scripts/calibrate_consolidation.py --label 40`; its output sets C's threshold.
-- **C.** Consolidation engine in **shadow** (idle-triggered daily job, local 7B judges each candidate
-  group — duplicate / contradiction / both-true, defaulting to keep-both — proposals logged only) +
-  `scripts/verify_consolidation.py` (must-not checks at `need=samples`: never supersedes a distinct
-  fact, never touches a pinned one).
+- **C. Shadow engine — built:** `app/memory/consolidate.py` + `jobs.consolidation_job` (hourly check; a
+  pass runs once a day after ≥60 idle minutes, stops the moment she messages, and only a `done` run counts
+  so a yielded/failed one retries). Candidate pairs come from one SQL self-join over current facts at
+  `CONSOLIDATION_SIMILARITY_THRESHOLD` (a placeholder 0.75 until B runs), capped at
+  `CONSOLIDATION_MAX_PAIRS`. The 7B answers only *duplicate / contradiction / distinct*; **code** picks
+  the survivor (duplicate: pinned > confidence > newer; contradiction: newer), flags any pinned drop,
+  never chains within a run, and treats any judge failure as keep-both. Shadow logs `SHADOW-CONSOLIDATE`
+  (→ `scripts/review_consolidation.sh`) and writes nothing; runs are recorded in `ConsolidationRun` and
+  shown in `/status`. Hermetic gate `tests/test_consolidate.py` (5 mutation checks); real-model gate
+  `scripts/verify_consolidation.py` (in `verify_all.sh`; duplicate + newer-wins capability at 2/3,
+  must-nots at 3/3) — **not yet run** (needs Ollama).
 - **D.** Live: apply through the data layer, `/memory` with Undo buttons, one briefing line.
 - **E.** Day mining (her own messages + reminders only — never assistant turns, which can carry
   untrusted email/web text, rule 4). Later: calendar; the nightly corrections review (#11) reuses C's job.

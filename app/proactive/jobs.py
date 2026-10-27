@@ -9,16 +9,17 @@ never-duplicated).
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+import uuid
+from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app import health
 from app.config import settings
-from app.memory import store
+from app.memory import consolidate, store
 from app.memory.db import get_engine
-from app.memory.models import EmailSignal, SignalStatus
+from app.memory.models import ConsolidationRun, EmailSignal, MessageLog, SignalStatus
 from app.proactive import briefing, email_signals, reminder_time, reminders
 
 log = logging.getLogger(__name__)
@@ -194,3 +195,84 @@ async def daily_briefing_job(context) -> None:
             await run_daily_briefing(context.bot, session, settings.telegram_chat_id)
     except Exception:
         log.exception("daily_briefing_job crashed; will retry tomorrow")
+
+
+# --- Memory consolidation (docs/14 #1(c)) — daily, only while she's idle ---------------------
+
+
+def consolidation_due(session: Session, now: datetime) -> str | None:
+    """None if a pass should run now, else why not. A laptop sleeps at night, so this is "once a day
+    whenever she's been idle", not a fixed time: an hourly job asks, and only a completed ("done")
+    run counts — a yielded or failed one retries at the next idle hour."""
+    if settings.consolidation_mode == "off":
+        return "off"
+    last_user = session.exec(
+        select(MessageLog.created_at).where(MessageLog.role == "user")
+        .order_by(MessageLog.created_at.desc()).limit(1)
+    ).first()
+    if last_user is not None and now - last_user < timedelta(minutes=settings.consolidation_idle_minutes):
+        return "not idle"
+    last_done = session.exec(
+        select(ConsolidationRun.started_at).where(ConsolidationRun.outcome == "done")
+        .order_by(ConsolidationRun.started_at.desc()).limit(1)
+    ).first()
+    if last_done is not None and now - last_done < timedelta(hours=settings.consolidation_min_interval_hours):
+        return "ran recently"
+    return None
+
+
+def run_consolidation_pass(session: Session, *, judge, now: datetime | None = None) -> dict | None:
+    """Run one pass if due; record it; return a plain summary (not the ORM row — it's expired after
+    commit). Shadow mode: proposals are logged, memory is untouched. Never raises."""
+    now = now or datetime.now(UTC)
+    if consolidation_due(session, now) is not None:
+        return None
+    run = ConsolidationRun(run_id=uuid.uuid4().hex[:8], mode=settings.consolidation_mode, started_at=now)
+    session.add(run)
+    session.commit()
+    run_id, started = run.run_id, run.started_at
+
+    def she_is_back() -> bool:  # she messaged since the run began → stop before the next model call
+        return session.exec(
+            select(MessageLog.id).where(MessageLog.role == "user", MessageLog.created_at > started).limit(1)
+        ).first() is not None
+
+    summary = {"run_id": run_id, "outcome": "", "candidates": 0, "judged": 0, "proposals": 0}
+    try:
+        result = consolidate.consolidate(
+            session, judge=judge, threshold=settings.consolidation_similarity_threshold,
+            max_pairs=settings.consolidation_max_pairs, should_yield=she_is_back,
+        )
+        consolidate.log_shadow(run_id, result.proposals)
+        summary.update(outcome="yielded" if result.yielded else "done", candidates=result.candidates,
+                       judged=result.judged, proposals=len(result.proposals))
+    except Exception as exc:
+        log.exception("consolidation run %s failed", run_id)
+        summary["outcome"] = f"error: {type(exc).__name__}"
+    run = session.get(ConsolidationRun, run.id)
+    run.finished_at = datetime.now(UTC)
+    run.pairs_judged, run.proposals, run.outcome = summary["judged"], summary["proposals"], summary["outcome"]
+    session.add(run)
+    session.commit()
+    return summary
+
+
+def _consolidation_blocking() -> dict | None:
+    from app.agent.graph import consolidation_judge  # lazy: the agent layer owns model selection
+
+    with Session(get_engine()) as session:
+        return run_consolidation_pass(session, judge=consolidation_judge())
+
+
+async def consolidation_job(_context) -> None:
+    """PTB JobQueue callback (hourly). The pass makes many local-model calls, so it runs off the loop.
+    Top-level try/except so a failure never stops the scheduler."""
+    try:
+        if settings.consolidation_mode == "off":
+            return
+        summary = await asyncio.to_thread(_consolidation_blocking)
+        if summary:
+            log.info("consolidation run %(run_id)s %(outcome)s: %(candidates)d candidates, %(judged)d judged, "
+                     "%(proposals)d proposals", summary)
+    except Exception:
+        log.exception("consolidation_job crashed; will retry next interval")

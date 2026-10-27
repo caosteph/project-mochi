@@ -101,6 +101,7 @@ def test_run_schedules_the_background_jobs(started):
         "signal_ingest_job",
         "heartbeat_job",
         "health_job",
+        "consolidation_job",
     }
     assert [name for name, _ in app.job_queue.daily] == ["daily_briefing_job"]
 

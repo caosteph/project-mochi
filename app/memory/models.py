@@ -121,6 +121,21 @@ class MemoryChange(SQLModel, table=True):
     undone_at: datetime | None = Field(default=None, sa_column=_tz_column(nullable=True))
 
 
+class ConsolidationRun(SQLModel, table=True):
+    """One consolidation pass: when, in which mode, how far it got. Bookkeeping only — the daily
+    "has it run yet?" check and /status read it. Only an `outcome="done"` run counts as today's pass;
+    "yielded" (she started chatting) or "error: …" retry at the next idle hour. `finished_at` None =
+    still running, or the process died mid-run."""
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: str = Field(index=True)
+    mode: str
+    started_at: datetime = Field(default_factory=_utcnow, sa_column=_tz_column())
+    finished_at: datetime | None = Field(default=None, sa_column=_tz_column(nullable=True))
+    pairs_judged: int = 0
+    proposals: int = 0
+    outcome: str = ""  # "done" | "yielded" (she messaged) | "error: …"
+
+
 class Goal(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     text: str

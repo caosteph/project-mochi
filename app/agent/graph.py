@@ -113,6 +113,17 @@ def fact_extractor():
     )
 
 
+def consolidation_judge():
+    """The structured local model memory consolidation asks "duplicate / contradiction / distinct?".
+    Same shape as fact_extractor: built here (the agent layer owns model selection), injected into
+    `app.memory.consolidate`. Facts are SENSITIVE → always the local model; temperature 0, no tools."""
+    from app.memory.consolidate import PairVerdict
+
+    return router.chat_model(Sensitivity.SENSITIVE, temperature=0).with_structured_output(
+        PairVerdict, method="json_schema"
+    )
+
+
 def _build_messages(state: AgentState, *, messages=None) -> list:
     """Assemble the prompt: stable persona (+ profile card + rolling summary) first, history, then a
     trailing volatile time note.
