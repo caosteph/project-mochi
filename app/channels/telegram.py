@@ -216,6 +216,8 @@ class TelegramChannel(StreamingMixin, CommandsMixin, ButtonsMixin, Channel):
             jobs.daily_briefing_job,
             time=dt_time(hour=settings.briefing_hour, tzinfo=get_localzone()),
         )
+        # Memory consolidation: an hourly "is a daily pass due?" check (no-op unless enabled + she's idle).
+        app.job_queue.run_repeating(jobs.consolidation_job, interval=3600, first=900)
         # Liveness: the heartbeat feeds the watchdog thread (app/health.py); the health check
         # pings her once per outage and exits for a supervised restart when that can fix it.
         app.job_queue.run_repeating(health.heartbeat_job, interval=health.HEARTBEAT_SECONDS, first=5)

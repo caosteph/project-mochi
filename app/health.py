@@ -311,7 +311,7 @@ def _uptime(now: datetime) -> str:
 
 
 def _db_lines(engine, now: datetime) -> list[str]:
-    from app.memory.models import MessageLog
+    from app.memory.models import ConsolidationRun, MessageLog
     from app.proactive import reminders
 
     with Session(engine) as session:
@@ -322,7 +322,14 @@ def _db_lines(engine, now: datetime) -> list[str]:
             .order_by(MessageLog.created_at.desc())
             .limit(1)
         ).first()
+        last_run = session.exec(
+            select(ConsolidationRun.started_at, ConsolidationRun.outcome, ConsolidationRun.proposals)
+            .order_by(ConsolidationRun.started_at.desc()).limit(1)
+        ).first()
     lines = [f"Last briefing: {_ago(briefing, now)}"]
+    if settings.consolidation_mode != "off":
+        detail = "not yet" if last_run is None else f"{_ago(last_run[0], now)} — {last_run[1] or 'running'}, {last_run[2]} proposal(s)"
+        lines.append(f"Memory consolidation ({settings.consolidation_mode}): {detail}")
     if pending:
         nxt = pending[0]
         snip = nxt.text if len(nxt.text) <= 40 else nxt.text[:39] + "…"

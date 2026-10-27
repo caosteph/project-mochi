@@ -110,6 +110,18 @@ class Settings(BaseSettings):
     # this-many seconds keeps it warm; 0 disables. Must be < Ollama's idle timeout.
     keep_warm_interval_seconds: int = 240
 
+    # Memory consolidation (app/memory/consolidate.py, docs/14 #1(c)). Once a day, when she's been idle,
+    # the local model judges near-duplicate fact pairs (duplicate / contradiction / distinct) and code
+    # decides what would be superseded. "off" → nothing; "shadow" → log proposals only (SHADOW-CONSOLIDATE
+    # → scripts/review_consolidation.sh), never change memory. Public default off; opt in via .env.
+    # The threshold is a PLACEHOLDER until scripts/calibrate_consolidation.py is run on her real facts —
+    # every pair above it costs one local-model call, every related pair below it is never looked at.
+    consolidation_mode: Literal["off", "shadow"] = "off"
+    consolidation_similarity_threshold: float = 0.75
+    consolidation_max_pairs: int = 200        # model-call budget per run
+    consolidation_idle_minutes: int = 60      # only run after this long without a message from her
+    consolidation_min_interval_hours: int = 20  # at most ~once a day
+
     # Voice notes (app/integrations/transcribe.py) — transcribed ON-DEVICE with faster-whisper (audio is
     # personal data; it never leaves the machine and is never stored), then handled exactly like typed
     # text. "base" + int8 is ~150 MB and fast on the Air's CPU; "small" is more accurate, ~2-3x slower.
