@@ -88,7 +88,7 @@ the link it made). One `_active` filter hides superseded facts from every user-f
 (`extract.sweep_and_store`, `import_profile`) passes `include_superseded=True` so an outdated fact
 re-stated in an old message isn't resurrected. No writer yet, so no behavior change. Gated by
 `tests/test_memory_supersession.py` (hermetic, real pgvector/full-text queries; 4 mutation checks).
-Next: B calibration → C shadow engine → D live + `/memory` undo → E day mining.
+**Step B — calibration (2026-10-27):** `scripts/calibrate_consolidation.py` measures the grouping threshold on her real facts over a Postgres-enforced read-only connection (stratified pair labelling → per-threshold calls-vs-recall table → a recommendation that refuses on too few labels); gated by `tests/test_calibrate_consolidation.py` (incl. a write attempt that must fail, mutation-checked). **Not yet run on her facts** — that run sets step C's threshold. Next: C shadow engine → D live + `/memory` undo → E day mining.
 
 **Voice notes — transcribed on-device, then the same turn as typed text (2026-10-27).** docs/14 #6.
 `_on_voice` downloads the note into `data/voice_tmp/` (deleted in `finally`, and the dir is purged on

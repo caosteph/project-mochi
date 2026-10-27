@@ -62,7 +62,7 @@ live) — the pattern the email scanner proved.
 - **A. Data layer — shipped:** soft supersession (`Fact.superseded_by`, `MemoryChange`,
   `store.supersede`/`undo_change`), one `_active` filter on every user-facing read, capture dedup that
   still sees superseded facts, pinned facts refused in code.
-- **B.** Read-only calibration script: pairwise similarity distribution over her facts → the threshold.
+- **B. Calibration — built, not yet run on her facts:** `scripts/calibrate_consolidation.py` (read-only — the connection sets `default_transaction_read_only=on`, so Postgres rejects any write; safe while the bot runs). Pairwise similarity distribution, then `--label N` asks about pairs sampled *across* similarity bands (the low bands are where a wordless contradiction hides), saved to `data/consolidation_labels.json`, and a per-threshold table of model calls vs related pairs caught. Recommends the highest threshold meeting `--target-recall` (0.9), and refuses on <5 related labels, on no threshold reaching the target ("similarity alone can't group them" — the signal to add a non-embedding candidate source in C), or over budget. **Run on the Mac:** `uv run python scripts/calibrate_consolidation.py --label 40`; its output sets C's threshold.
 - **C.** Consolidation engine in **shadow** (idle-triggered daily job, local 7B judges each candidate
   group — duplicate / contradiction / both-true, defaulting to keep-both — proposals logged only) +
   `scripts/verify_consolidation.py` (must-not checks at `need=samples`: never supersedes a distinct
