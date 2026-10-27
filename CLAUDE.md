@@ -77,6 +77,12 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 
 ## Current status
 
+**Model A/B harness for #9 (newer same-size model) (2026-10-27).** `scripts/compare_models.py` pulls each
+candidate, derives its 8k variant, measures speed (fresh prompt per run, so Ollama's prefix cache can't
+fake it) and memory, runs `scorecard.py` + `verify_scenarios.py`, and prints a conservative verdict vs
+the baseline. **Not yet run** (built in a cloud session with no Ollama and the model registries
+blocked) — no model-comparison numbers exist yet; see `docs/14-future-work.md` #9.
+
 **Liveness — a wedged or half-dead Mochi no longer looks like a quiet day (2026-10-27).** docs/14 #2.
 `app/health.py`: a **watchdog** thread exits the process (→ launchd restart → `preflight.sh` repairs
 deps) if the event loop's 30s heartbeat goes silent for 10 min; a **health check** every 5 min
