@@ -77,6 +77,21 @@ Explicit, always-on expectations for any AI session in this repo — read this e
 
 ## Current status
 
+**Liveness — a wedged or half-dead Mochi no longer looks like a quiet day (2026-10-27).** docs/14 #2.
+`app/health.py`: a **watchdog** thread exits the process (→ launchd restart → `preflight.sh` repairs
+deps) if the event loop's 30s heartbeat goes silent for 10 min; a **health check** every 5 min
+(Postgres, Ollama, both models, Telegram polling) messages her once per outage + once on recovery
+(held through quiet hours), and restarts only when a restartable dependency stays down 3 checks running
+(a missing model alerts but never restart-loops); and **`/status`** reports uptime, model, live
+dependency health, last tick/briefing, pending reminders, modes — degrading per section so it answers
+when the DB is down. Channel/jobs only — no persona/tool/graph change, so the tool-firing verifies are
+unaffected. 417 hermetic tests green (`tests/test_health.py`, mutation-checked) + a real subprocess
+proof the watchdog exits 1 on a stale beat. **Also built for #9 (newer same-size model):**
+`scripts/compare_models.py` — pulls each candidate, derives its 8k variant, measures speed/memory,
+runs `scorecard.py` + `verify_scenarios.py`, and prints a conservative verdict vs the baseline. **Not
+yet run** (built in a cloud session with no Ollama and the model registries blocked) — no
+model-comparison numbers exist yet; see `docs/14-future-work.md` #9.
+
 **Egress floor is now categorical — one high-risk identifier refuses regardless of count.** Triaging a
 cloud security review (6 issues filed 2026-07-27, no PR), the one live gap was the egress sensitivity
 gate deciding purely on a flat redaction count (`is_too_personal(n_hits) → n_hits > redact_max_hits`),

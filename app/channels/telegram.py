@@ -16,7 +16,7 @@ handler registration. The rest of the channel lives beside it, split out because
 to test:
 
   telegram_stream.py    live token streaming, status breadcrumbs, delivery
-  telegram_commands.py  the nine slash commands
+  telegram_commands.py  the slash commands
   telegram_buttons.py   inline-keyboard callbacks (reminders, signals, approvals)
 
 They are mixins rather than collaborators because they are all *handlers* — they share
@@ -42,6 +42,7 @@ from telegram.ext import (
 )
 from tzlocal import get_localzone
 
+from app import health
 from app.agent.graph import build_agent
 from app.channels.base import Channel
 from app.channels.telegram_buttons import ButtonsMixin
@@ -66,6 +67,7 @@ COMMANDS: tuple[tuple[str, str], ...] = (
     ("build", "_on_build"),
     ("doc", "_on_doc"),
     ("briefing", "_on_briefing"),
+    ("status", "_on_status"),
     ("facts", "_on_facts"),
     ("pin", "_on_pin"),
     ("unpin", "_on_unpin"),
@@ -170,5 +172,12 @@ class TelegramChannel(StreamingMixin, CommandsMixin, ButtonsMixin, Channel):
             jobs.daily_briefing_job,
             time=dt_time(hour=settings.briefing_hour, tzinfo=get_localzone()),
         )
+        # Liveness: the heartbeat feeds the watchdog thread (app/health.py); the health check
+        # pings her once per outage and exits for a supervised restart when that can fix it.
+        app.job_queue.run_repeating(health.heartbeat_job, interval=health.HEARTBEAT_SECONDS, first=5)
+        if settings.health_check_interval_seconds > 0:
+            app.job_queue.run_repeating(
+                health.health_job, interval=settings.health_check_interval_seconds, first=60
+            )
         log.info("Telegram channel started (long-polling). Whitelisted chat: %s", settings.telegram_chat_id)
         app.run_polling()

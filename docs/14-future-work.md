@@ -55,17 +55,9 @@ Without captured memory this is a capable chatbot with tools, not a personal age
 *hers*. It compounds: briefing, replies, and proactivity all improve when memory is real.
 **Medium, diagnosis-led** (seed + always-on card shipped; capture + structure remain).
 
-### 2. Liveness heartbeat + `/status`
-launchd's `KeepAlive` restarts a process that *exits*, but not one that's wedged (hung poll, dead DB
-connection, unloaded model). Add a self-check that verifies the essentials — polling alive, Postgres
-reachable, Ollama responding, last tick recent — and self-heals or pings the chat on failure, plus a
-`/status` command reporting uptime, model, last briefing, pending reminders, and dependency health.
-An assistant you trust with reminders is worse than useless when it's quietly dead, and right now
-silence looks identical to "nothing to say." **Small.**
-
-**Promoted (2026-07-21):** she has already lived through a silently-dead bot, and until this exists
-"Mochi has nothing to say" and "Mochi is down" look identical from her phone. Small effort, direct
-trust impact.
+### 2. Liveness heartbeat + `/status` — ✅ shipped 2026-10-27
+See *Liveness: watchdog, health alerts, `/status`* under Resolved. (Kept as a stub so the numbers
+below don't shift.)
 
 ### 3. Re-enable the email signal scanner (the flagship) — IN SHADOW as of 2026-07-23
 The headline feature — spot a purchase, remind her before the return window closes. A 3-state
@@ -129,6 +121,18 @@ choice deserves a fair re-test. Build 8k variants of one or two modern 7–8B ca
 tokens/sec; adopt only on measured improvement (`LOCAL_MODEL` is a one-line switch). Potentially a
 large quality gain for **$0**, and it directly tests whether the ~$1.4k Mac mini is still needed.
 **Small — a few hours of measurement.**
+
+**Harness built (2026-10-27); the measurement itself is still to run — on the Air, bot stopped:**
+`scripts/compare_models.py <baseline> <candidates…>` pulls each model, derives its 8k variant (same
+Modelfile as production, so the A/B is at equal context), measures prompt/decode tok/s + resident GB
+on a ~4k-token prompt, runs `scorecard.py --json` + `verify_scenarios.py` against it, unloads it, and
+prints a table + a conservative verdict per candidate (ADOPT only if the scenarios gate passes, no rate
+drops more than `--tolerance` points, one rises more than that, and it fits `--max-resident-gb`). It
+could not be run from the cloud session that built it (no Ollama, and the model registries were blocked),
+so **no numbers exist yet** — run it, e.g. `compare_models.py qwen2.5:7b qwen3:8b llama3.1:8b`, after
+checking ollama.com/library for anything newer in the 7–8B class. A thinking model (Qwen3) may emit its
+reasoning differently through the OpenAI endpoint; if its no-JSON-dump or narrates rates look odd, look
+at a raw reply before trusting the number.
 
 ### 10. Measure answer *quality*, not just tool firing
 Every gate we have asks "did the right tool fire?" and "is the reply free of JSON?" — nothing asks
@@ -326,6 +330,27 @@ code) or the mini's local 32B (no per-minute limit). **Small to medium.**
 ---
 
 ## ✅ Resolved (kept — the lessons still apply)
+
+### Liveness: watchdog, health alerts, `/status` (2026-10-27)
+launchd's KeepAlive restarts a process that *exits*, not one that's wedged, and she had already lived
+through a silently-dead bot. `app/health.py` adds three deterministic pieces. (1) A **watchdog**: a
+heartbeat job beats on the bot's event loop every 30s, and a daemon thread `os._exit(1)`s if it goes
+silent for `watchdog_stale_seconds` (600) — covering a wedged loop *and* a dead JobQueue, since the
+beat rides the same scheduler as the reminder tick. Exiting is the repair: KeepAlive restarts the bot
+and `preflight.sh` fixes Postgres/Ollama on the way up. `time.monotonic()` doesn't advance during
+sleep, so closing the lid isn't a false positive. (2) A **health check** every
+`health_check_interval_seconds` (300): Postgres, Ollama, chat + embedding models present, Telegram
+polling alive. A pure `Monitor` turns results into one alert per outage (re-alerting only when a *new*
+component breaks), held through quiet hours, plus one "healthy again" — and requests the same supervised
+restart only when a *restartable* failure (dependency unreachable, polling stopped) persists for
+`health_restart_after_failures` (3) checks; a missing model only alerts, since a restart can't pull it
+and would just loop. Alerts are deliberately **not** gated by `/pause` — pause silences reminder
+content, and an outage alert is at most one message per outage. (3) **`/status`**: uptime, model, a
+fresh dependency check, last reminder tick, last briefing (from `MessageLog`, so it survives
+restarts), pending reminders + the next one, scanner/hosted modes — each section degrades on its own
+so it still answers when the DB is down. Gated by `tests/test_health.py` (29 tests, mutation-checked:
+re-alerting every check, restarting on a missing model, and dropping the tick record each fail a test)
+and a real subprocess run proving the watchdog survives while beating and exits 1 once the beat stops.
 
 ### Hosted builds fit the free-tier token budget (2026-07-27)
 Every hosted build/edit started 413'ing: `Request too large … TPM Limit 8000, Requested 8309`. Root

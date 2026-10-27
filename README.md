@@ -125,7 +125,8 @@ Everything below works today. Each capability's step-by-step build history lives
 - **Talks in buttons.** Any yes/no or pick-one decision shows up as tappable inline buttons rather than
   a question you have to type "yes" at.
 - **Runs unattended.** Supervised by launchd (restarts on crash, repairs its own dependencies first), a
-  single-instance lock so it can't answer you twice, a local model tuned with enough context that
+  watchdog that restarts it if it ever wedges, a health check that messages you once if a dependency
+  goes down (and `/status` to see for yourself), a single-instance lock so it can't answer you twice, a local model tuned with enough context that
   replies don't run dry mid-sentence, and text that formats as it streams.
 
 ## Roadmap & future work
@@ -217,6 +218,8 @@ Two layers, because they catch different things:
   no-JSON-dump, honoring a negative constraint single-turn and across a rolling summary,
   answers-vs-narrates) for the current `LOCAL_MODEL` + model profile, so a model swap is decided from
   numbers rather than vibes. Deliberately kept out of `verify_all.sh` (real-model probes are slow).
+  `scripts/compare_models.py` runs it (plus speed, memory, and `verify_scenarios`) across several
+  local models at equal context and prints a verdict per candidate against the current one.
 
 A **pre-push hook** (`.githooks/pre-push`, opt in with `./scripts/install_hooks.sh`) reproduces CI
 locally before every push: it runs `ruff` and the hermetic suite **with the embedding endpoint pointed
