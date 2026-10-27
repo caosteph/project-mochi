@@ -2,7 +2,7 @@
 
 Split out of `telegram.py` because it is the one genuinely intricate part of the channel —
 a sync generator consumed by an async loop, two message surfaces edited in place, and a
-throttle — and it was previously buried in a 670-line class alongside nine slash commands.
+throttle — and it was previously buried in a 670-line class alongside the slash commands.
 
 Everything here is transport. No agent logic, no persistence beyond the turn log.
 """
