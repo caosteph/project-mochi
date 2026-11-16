@@ -20,6 +20,8 @@ from html.parser import HTMLParser
 
 from googleapiclient.discovery import build
 
+from app.config import settings
+from app.integrations import demo as demo_provider
 from app.integrations.google_auth import get_credentials
 
 _BODY_MAX_CHARS = 20_000  # bound the reader's input regardless of email size
@@ -27,6 +29,13 @@ _BODY_MAX_CHARS = 20_000  # bound the reader's input regardless of email size
 
 _own_address: str | None = None
 _service_cache = None
+
+
+def _demo() -> bool:
+    """True when demo mode serves this call instead of Google. An explicitly
+    passed `service` always wins (that's the offline-test seam) — demo mode only
+    replaces the default service, never a caller's mock."""
+    return settings.demo_mode
 
 
 def _service():
@@ -47,6 +56,8 @@ def reset_service_cache() -> None:
 def get_own_address(*, service=None) -> str:
     """The authenticated account's own email address (cached). Used to resolve
     'me'/'myself' recipients into a real address for self-drafts."""
+    if service is None and _demo():
+        return demo_provider.get_own_address()
     global _own_address
     if _own_address is None:
         service = service or _service()
@@ -57,6 +68,8 @@ def get_own_address(*, service=None) -> str:
 def list_recent_metadata(max_results: int = 10, query: str | None = None, *, service=None) -> list[dict]:
     """Return recent messages as metadata only: from / subject / date. No body,
     no snippet — see the module docstring for why."""
+    if service is None and _demo():
+        return demo_provider.list_recent_metadata(max_results=max_results, query=query)
     service = service or _service()
     resp = (
         service.users()
@@ -91,6 +104,8 @@ def list_recent_metadata(max_results: int = 10, query: str | None = None, *, ser
 
 def create_draft(to: str, subject: str, body: str, *, service=None) -> dict:
     """Create a Gmail draft (unsent). Returns the created draft resource (has 'id')."""
+    if service is None and _demo():
+        return demo_provider.create_draft(to, subject, body)
     service = service or _service()
     msg = EmailMessage()
     msg["To"] = to
@@ -107,6 +122,9 @@ def create_draft(to: str, subject: str, body: str, *, service=None) -> dict:
 
 def delete_draft(draft_id: str, *, service=None) -> None:
     """Delete a draft by id — used by verify_phase2.py to clean up after a live test."""
+    if service is None and _demo():
+        demo_provider.delete_draft(draft_id)
+        return
     service = service or _service()
     service.users().drafts().delete(userId="me", id=draft_id).execute()
 
@@ -150,6 +168,8 @@ def _html_to_text(html: str) -> str:
 
 def search_message_ids(query: str, max_results: int = 25, *, service=None) -> list[str]:
     """Return the message-ids matching a Gmail search query, newest first."""
+    if service is None and _demo():
+        return demo_provider.search_message_ids(query, max_results=max_results)
     service = service or _service()
     resp = (
         service.users().messages().list(userId="me", maxResults=max_results, q=query).execute()
@@ -187,6 +207,8 @@ def get_message_body(message_id: str, *, service=None) -> dict:
     """Read one message's headers + plain-text body. RESERVED FOR THE QUARANTINED
     READER — never wire this into an agent tool (see module docstring / rule #4).
     Returns {from, subject, date, body_text}; body_text is length-bounded."""
+    if service is None and _demo():
+        return demo_provider.get_message_body(message_id)
     service = service or _service()
     msg = service.users().messages().get(userId="me", id=message_id, format="full").execute()
     payload = msg.get("payload", {})

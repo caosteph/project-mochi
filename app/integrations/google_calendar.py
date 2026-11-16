@@ -7,9 +7,16 @@ from datetime import UTC, datetime, timedelta
 
 from googleapiclient.discovery import build
 
+from app.config import settings
+from app.integrations import demo as demo_provider
 from app.integrations.google_auth import get_credentials
 
 _service_cache = None
+
+
+def _demo() -> bool:
+    """True when demo mode serves this call instead of Google (see google_gmail._demo)."""
+    return settings.demo_mode
 
 
 def _service():
@@ -39,6 +46,8 @@ def list_events(
     (RFC3339). Defaults to the next 7 days. Each event is a small dict — no raw
     description text is surfaced, only summary/time/location.
     """
+    if service is None and _demo():
+        return demo_provider.list_events(start_iso, end_iso, max_results)
     service = service or _service()
     now = datetime.now(UTC)
     start = start_iso or now.isoformat()
@@ -105,6 +114,8 @@ def create_event(
 ) -> dict:
     """Create a primary-calendar event with a popup reminder. Used only by the
     reminder engine to mirror reminders (no agent-facing update/delete tool exists)."""
+    if service is None and _demo():
+        return demo_provider.create_event(summary, start_iso, end_iso)
     service = service or _service()
     body = {
         "summary": summary,
@@ -120,5 +131,8 @@ def create_event(
 
 def delete_event(event_id: str, *, service=None) -> None:
     """Delete an event — used by verify_phase3.py to clean up its test event."""
+    if service is None and _demo():
+        demo_provider.delete_event(event_id)
+        return
     service = service or _service()
     service.events().delete(calendarId="primary", eventId=event_id).execute()

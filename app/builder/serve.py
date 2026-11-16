@@ -49,7 +49,8 @@ def serve_static(project_dir: Path, *, name: str | None = None) -> str:
     httpd = _ReusableServer(("0.0.0.0", port), handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
-    url = f"http://{lan_ip()}:{port}"
+    host = settings.builder_public_host or lan_ip()
+    url = f"http://{host}:{port}"
     _servers[name] = (httpd, thread, port, url)
     return url
 
