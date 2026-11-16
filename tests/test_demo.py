@@ -332,3 +332,14 @@ def test_console_drafts_empty_then_created(channel, capsys):
     demo_provider.create_draft("jordan.lee@example.com", "Dinner Thursday", "See you at 7!")
     channel._cmd_drafts()
     assert "Dinner Thursday" in capsys.readouterr().out
+
+
+# --- briefing greeting ------------------------------------------------------
+
+def test_demo_briefing_greets_demo_user_not_stephanie(session):
+    """The /briefing greeting must address the demo persona (Alex), not the real user."""
+    from app.proactive import briefing
+
+    out = briefing.build_briefing(session, now=datetime.now(UTC))
+    assert "Morning, Alex" in out
+    assert "Stephanie" not in out

@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from sqlmodel import Session, select
 from tzlocal import get_localzone
 
+from app.agent.persona import user_first_name
 from app.integrations import google_calendar
 from app.memory.models import Goal, GoalStatus, Reminder, Task, TaskStatus
 from app.proactive import reminders
@@ -98,7 +99,7 @@ def build_briefing(session: Session, *, now: datetime | None = None, service=Non
     """The morning digest as one plain-text message — deterministic, no model.
     Empty sections are omitted; a genuinely empty day gets a short, warm line."""
     now = now or datetime.now(UTC)
-    header = f"☀️ Morning, Stephanie — {now.astimezone(get_localzone()):%A, %b %-d}."
+    header = f"☀️ Morning, {user_first_name()} — {now.astimezone(get_localzone()):%A, %b %-d}."
 
     blocks = [
         _calendar_section(now, service),
