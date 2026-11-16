@@ -105,6 +105,15 @@ class Settings(BaseSettings):
     google_client_secret_path: str = "data/google_client_secret.json"
     google_token_path: str = "data/google_token.json"
 
+    # Demo mode (docs/demo-mode.md) — runs the agent against fictional fixture
+    # data instead of real Google credentials, so a recruiter can try the real
+    # agent with no accounts and no personal data. A thin seam: the Google
+    # integration modules dispatch to app.integrations.demo when this is true,
+    # and app.main swaps Telegram for the console channel. Never on outside
+    # the demo; fixtures contain no real personal data.
+    demo_mode: bool = False
+    demo_fixtures_dir: str = "demo/fixtures"
+
     # Keep the local model resident so a message after an idle gap isn't slow to
     # reload (Ollama unloads after ~5 min idle by default). A background ping every
     # this-many seconds keeps it warm; 0 disables. Must be < Ollama's idle timeout.
@@ -143,6 +152,9 @@ class Settings(BaseSettings):
 
     # Builder (Phase 4B) — Mochi scaffolds/serves web apps + generates docs in a sandbox.
     builder_port_base: int = 8100        # first port to try when serving built apps
+    builder_public_host: str | None = None  # advertised host in built-app URLs; set to
+    # "localhost" in the Docker demo so the URL is reachable from the host (the server
+    # itself always binds 0.0.0.0; this only changes the printed URL). Unset → LAN IP.
     builder_sandbox_timeout: int = 120   # seconds cap on a sandboxed command
     builder_fs_deny: bool = True         # best-effort sandbox-exec deny of data//.env reads
     # Hosted codegen must fit under the model provider's per-minute token budget (TPM): a request

@@ -1,0 +1,86 @@
+# Demo mode (docs/demo-mode.md): Mochi on fictional data, no credentials.
+#
+#   docker compose up          # first run pulls ~5 GB of models; later runs are fast
+#   # type at the prompt; /scan, /approve <id>, /tick, /briefing, /help, /quit
+#   docker compose down        # stop (add -v to wipe the demo database + models)
+#
+# Services: Postgres+pgvector, Ollama (pulls qwen2.5:7b + nomic-embed-text and
+# creates the qwen2.5:7b-8k variant), a one-shot seed, and the app itself on
+# the console channel. The app's stdin is attached to your terminal, so run
+# this in the foreground. Ports 8100-8110 are published so built demo apps
+# (BUILDER_PUBLIC_HOST=localhost) open in your browser.
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: personal_agent_demo
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d personal_agent_demo"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-data:/root/.ollama
+      - ./ollama:/modelfiles:ro
+      - ./docker/ollama-init.sh:/init.sh:ro
+    entrypoint: ["sh", "/init.sh"]
+    ports:
+      - "11434:11434"
+    healthcheck:
+      # Healthy only once the 8k chat model exists locally — the seed and the
+      # app both need it, and the seed retries embeddings while it pulls.
+      test: ["CMD-SHELL", "ollama show qwen2.5:7b-8k >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+
+  seed:
+    build: .
+    command: ["uv", "run", "python", "scripts/seed_demo.py"]
+    environment:
+      DATABASE_URL: postgresql://postgres@db/personal_agent_demo
+      DEMO_MODE: "true"
+      OLLAMA_BASE_URL: http://ollama:11434/v1
+      TELEGRAM_BOT_TOKEN: demo-placeholder
+      TELEGRAM_CHAT_ID: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+
+  app:
+    build: .
+    command: ["uv", "run", "python", "-m", "app.main"]
+    stdin_open: true
+    tty: true
+    ports:
+      - "8100-8110:8100-8110"
+    environment:
+      DATABASE_URL: postgresql://postgres@db/personal_agent_demo
+      DEMO_MODE: "true"
+      OLLAMA_BASE_URL: http://ollama:11434/v1
+      TELEGRAM_BOT_TOKEN: demo-placeholder
+      TELEGRAM_CHAT_ID: "1"
+      SIGNAL_MODE: live
+      TRUSTED_SENDER_DOMAINS: northwindoutfitters.example
+      BUILDER_PUBLIC_HOST: localhost
+      # No quiet hours in the demo: a recruiter running /scan or /tick at 10pm
+      # should see it work, not hit the 21:00–08:00 silence window.
+      QUIET_HOURS_START: "0"
+      QUIET_HOURS_END: "0"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      ollama:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  ollama-data:

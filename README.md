@@ -176,6 +176,18 @@ uv run python -m app.main
 
 Message your bot on Telegram — the reply is generated entirely on your own machine.
 
+## Try the demo (no setup)
+
+No Telegram bot, no Google credentials, no personal data — the real agent on
+fictional data:
+
+```bash
+docker compose up
+```
+
+See [`docs/demo-mode.md`](./docs/demo-mode.md) for what to try: the proactive
+return reminder, the prompt-injection defense, and the builder making a web app.
+
 ## Repository layout
 
 ```
@@ -184,7 +196,10 @@ app/
                 the always-on profile card (pinned memory), tool-call repair (no raw JSON leaks)
   channels/     Telegram adapter — core + streaming/commands/buttons mixins, rendering
                 (and a Channel interface + contract for future transports)
-  integrations/ Google auth / Calendar / Gmail
+                Console channel — the demo-mode transport (stdin/stdout, no bot token)
+  integrations/ Google auth / Calendar / Gmail (+ demo.py — fixture-backed stand-ins)
+demo/           demo-mode fixtures (fictional inbox/calendar/profile) + demo persona
+docker-compose.yml + Dockerfile + docker/ollama-init.sh   demo mode: Postgres, Ollama, seed, app
   memory/       SQLModel models, embeddings, hybrid recall, fact extraction
   proactive/    reminders (+ reminder_time parsing, reminder_calendar mirroring), email-signal
                 scanning (+ sender-trust gating), the daily briefing, the job scheduler

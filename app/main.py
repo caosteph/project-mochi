@@ -10,7 +10,7 @@ import os
 import sys
 from pathlib import Path
 
-from app.channels.telegram import TelegramChannel
+from app.config import settings
 from app.warmup import start_keep_warm
 
 log = logging.getLogger(__name__)
@@ -61,7 +61,17 @@ def main() -> None:
         )
         sys.exit(1)
     start_keep_warm()  # keep the local model resident so idle-gap replies aren't slow
-    TelegramChannel().run()
+    if settings.demo_mode:
+        # No Telegram in demo mode: the console channel talks to the same agent
+        # over stdin/stdout (docs/demo-mode.md). Imported lazily so the demo
+        # never touches the Telegram transport (or its bot token).
+        from app.channels.console import ConsoleChannel
+
+        ConsoleChannel().run()
+    else:
+        from app.channels.telegram import TelegramChannel
+
+        TelegramChannel().run()
 
 
 if __name__ == "__main__":
